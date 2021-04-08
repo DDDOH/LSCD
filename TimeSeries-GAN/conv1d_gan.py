@@ -13,6 +13,13 @@ Created on Wed Nov 27 11:07:16 2019
 """
 
 # example of fitting an auxiliary classifier gan (ac-gan) on fashion mnsit
+
+
+# define the standalone discriminator model
+
+
+
+
 from numpy import zeros
 from numpy import ones
 import numpy as np
@@ -39,10 +46,14 @@ from keras.initializers import RandomNormal
 from matplotlib import pyplot
 from keras.layers import Conv1D, GlobalAveragePooling1D, MaxPooling1D
 from sklearn.preprocessing import MinMaxScaler
+import os
+
+# check keras is using gpu
+from keras import backend as K
+print(K.tensorflow_backend._get_available_gpus())
 
 
-# define the standalone discriminator model
-def define_discriminator(in_shape=(384,1), n_classes=4):
+def define_discriminator(in_shape=(384, 1), n_classes=4):
     # weight initialization
     #init = RandomNormal(stddev=0.02)
     # image input
@@ -61,13 +72,13 @@ def define_discriminator(in_shape=(384,1), n_classes=4):
     fe = BatchNormalization()(fe)
     fe = LeakyReLU(alpha=0.2)(fe)
     fe = Dropout(0.2)(fe)
-    
-    #downsample one more
+
+    # downsample one more
     fe = Conv1D(128, 3, strides=2, padding='same')(fe)
     fe = BatchNormalization()(fe)
     fe = LeakyReLU(alpha=0.2)(fe)
     fe = Dropout(0.2)(fe)
-   
+
     # flatten feature maps
     fe = Flatten()(fe)
     # real/fake output
@@ -78,19 +89,22 @@ def define_discriminator(in_shape=(384,1), n_classes=4):
     model = Model(in_image, [out1, out2])
     # compile model
     opt = Adam(lr=0.0002, beta_1=0.5)
-    model.compile(loss=['binary_crossentropy', 'sparse_categorical_crossentropy'], optimizer=opt)
+    model.compile(loss=['binary_crossentropy',
+                        'sparse_categorical_crossentropy'], optimizer=opt)
     model.summary()
     return model
 
 # define the standalone generator model
+
+
 def define_generator(latent_dim, n_classes=4):
     # weight initialization
     #init = RandomNormal(stddev=0.02)
-    depth = 32 #32
+    depth = 32  # 32
     ks = 3
     dropout = 0.25
-    dim = 96 #
-    # 
+    dim = 96
+    #
     # label input
     in_label = Input(shape=(1,))
     # embedding for categorical input
@@ -98,7 +112,7 @@ def define_generator(latent_dim, n_classes=4):
     # linear multiplication
     n_nodes = 96 * 1
     li = Dense(n_nodes)(li)
-    
+
     # reshape to additional channel
     li = Reshape((96, 1, 1))(li)
     # image generator input
@@ -109,23 +123,23 @@ def define_generator(latent_dim, n_classes=4):
     gen = LeakyReLU(alpha=0.2)(gen)
     gen = Reshape((dim, 1, depth))(gen)
     # merge image gen and label input
-    merge = Concatenate()([gen, li]) #gen=96,1,32 x li=96,1,1
+    merge = Concatenate()([gen, li])  # gen=96,1,32 x li=96,1,1
     # upsample to 192,1,16
-    gen = Conv2DTranspose(16, 3, strides=(2,1), padding='same')(merge)
+    gen = Conv2DTranspose(16, 3, strides=(2, 1), padding='same')(merge)
     gen = BatchNormalization()(gen)
     gen = LeakyReLU(alpha=0.2)(gen)
-    
-    #upsample to  384,1,8
-    gen = Conv2DTranspose(8, 3, strides=(2,1), padding='same')(gen)
+
+    # upsample to  384,1,8
+    gen = Conv2DTranspose(8, 3, strides=(2, 1), padding='same')(gen)
     gen = BatchNormalization()(gen)
     gen = LeakyReLU(alpha=0.2)(gen)
-    
-    #updamsple
+
+    # updamsple
     #gen = Conv2DTranspose(48, (3,3), strides=(2,1), padding='same', kernel_initializer=init)(gen)
     #gen = BatchNormalization()(gen)
     #gen = Activation('relu')(gen)
-    #384 x 1 property image
-    gen = Reshape((384,-1))(gen)
+    # 384 x 1 property image
+    gen = Reshape((384, -1))(gen)
     # upsample to 28x28
     #gen = Conv1DTranspose(1, 3, padding='same', kernel_initializer=init)(gen)
     gen = Conv1D(1, 3, strides=1, padding='same')(gen)
@@ -134,8 +148,10 @@ def define_generator(latent_dim, n_classes=4):
     model = Model([in_lat, in_label], out_layer)
     model.summary()
     return model
- 
+
 # define the combined generator and discriminator model, for updating the generator
+
+
 def define_gan(g_model, d_model):
     # make weights in the discriminator not trainable
     d_model.trainable = False
@@ -145,48 +161,53 @@ def define_gan(g_model, d_model):
     model = Model(g_model.input, gan_output)
     # compile model
     opt = Adam(lr=0.0002, beta_1=0.5)
-    model.compile(loss=['binary_crossentropy', 'sparse_categorical_crossentropy'], optimizer=opt)
+    model.compile(loss=['binary_crossentropy',
+                        'sparse_categorical_crossentropy'], optimizer=opt)
     return model
- 
+
 # load images
+
+
 def load_real_samples():
     # load dataset
-    df29 = pd.read_csv('outfinaltest890.csv',header=None)
-    
+    dirname = os.path.dirname(__file__)
+    filename = os.path.join(dirname, 'outfinaltest890.csv')
+    df29 = pd.read_csv(filename, header=None)
+
     #df29 = df29.iloc[1:]
     #df = df.astype('float64')
     #data11 = df29.values
-    dataset=df29.values
+    dataset = df29.values
     dataset = dataset.astype('float64')
-    dataxy=dataset[:,1:]
-    timep=np.zeros([len(dataset),])
-    timep=dataset[:,0]
-    #maxchannels=10
-    maxer=np.amax(dataset[:,2])
-    print (maxer)
-    maxeri=maxer.astype('int')
-    maxchannels=maxeri
-    idataset=np.zeros([len(dataset),],dtype=int)
-    idataset=dataset[:,2]
-    idataset=idataset.astype(int)
+    dataxy = dataset[:, 1:]
+    timep = np.zeros([len(dataset), ])
+    timep = dataset[:, 0]
+    # maxchannels=10
+    maxer = np.amax(dataset[:, 2])
+    print(maxer)
+    maxeri = maxer.astype('int')
+    maxchannels = maxeri
+    idataset = np.zeros([len(dataset), ], dtype=int)
+    idataset = dataset[:, 2]
+    idataset = idataset.astype(int)
     scaler = MinMaxScaler(copy=False)
-    
-    X_train = dataset[:,1]
+
+    X_train = dataset[:, 1]
     y_train = idataset[:]
     #(X_train, y_train), (_, _) = mnist.load_data()
-    window=384
+    window = 384
     n = ((np.where(np.any(dataxy, axis=1))[0][-1] + 1) // window) * window
-    
-    xx = scaler.fit_transform(dataxy[:n,0].reshape(-1,1))
-    y_train = dataxy[:(n-window),1].reshape(-1,1)
-    
-    #make to matrix
-    X_train = np.asarray([xx[i:i+window] for i in range (n - window)])
+
+    xx = scaler.fit_transform(dataxy[:n, 0].reshape(-1, 1))
+    y_train = dataxy[:(n-window), 1].reshape(-1, 1)
+
+    # make to matrix
+    X_train = np.asarray([xx[i:i+window] for i in range(n - window)])
     #y_train = np.asarray([y_train[i:i+window] for i in range (n - window)])
-    #trainX=X_train.copy()
-    
+    # trainX=X_train.copy()
+
     X = X_train.copy()
-    trainy=y_train.copy()
+    trainy = y_train.copy()
     #X = xx.copy()
     #(trainXX, trainyy), (_, _) = load_data()
     # expand to 3d, e.g. add channels
@@ -197,8 +218,10 @@ def load_real_samples():
     X = (X - 127.5) / 127.5
     print(X.shape, trainy.shape)
     return [X, trainy]
- 
+
 # select real samples
+
+
 def generate_real_samples(dataset, n_samples):
     # split into images and labels
     images, labels = dataset
@@ -211,16 +234,20 @@ def generate_real_samples(dataset, n_samples):
     return [X, labels], y
 
 # generate points in latent space as input for the generator
+
+
 def generate_latent_points(latent_dim, n_samples, n_classes=4):
     # generate points in the latent space
     x_input = randn(latent_dim * n_samples)
     # reshape into a batch of inputs for the network
     z_input = x_input.reshape(n_samples, latent_dim)
     # generate labels
-    labels = randint(0, n_classes, n_samples) #check these labels!
+    labels = randint(0, n_classes, n_samples)  # check these labels!
     return [z_input, labels]
 
 # use the generator to generate n fake examples, with class labels
+
+
 def generate_fake_samples(generator, latent_dim, n_samples):
     # generate points in latent space
     z_input, labels_input = generate_latent_points(latent_dim, n_samples)
@@ -229,11 +256,15 @@ def generate_fake_samples(generator, latent_dim, n_samples):
     # create class labels
     y = zeros((n_samples, 1))
     return [images, labels_input], y
- 
+
 # generate samples and save as a plot and save the model
+
+
 def summarize_performance(step, g_model, latent_dim, n_samples=100):
     # prepare fake examples
-    [X, nmn_label], nmn_y = generate_fake_samples(g_model, latent_dim, n_samples) #TODO!:Numan (nmns were _ and _) - change labels in this row and debug!
+    # TODO!:Numan (nmns were _ and _) - change labels in this row and debug!
+    [X, nmn_label], nmn_y = generate_fake_samples(
+        g_model, latent_dim, n_samples)
     # scale from [-1,1] to [0,1]
     X = (X + 1) / 2.0
     # plot images
@@ -244,22 +275,26 @@ def summarize_performance(step, g_model, latent_dim, n_samples=100):
         pyplot.axis('off')
         # plot raw pixel data
         pyplot.imshow(X[i, :], cmap='gray_r')
-        np.savetxt('test_raw_nc%d%d.csv' % (i,step), X[i,:], delimiter=',')
-        np.savetxt('test_cat_nc%d%d.csv' % (i,step), nmn_label[i],delimiter=',')
+        result_dir_name = os.path.join(os.path.dirname(__file__), 'results')
+        if not os.path.exists(result_dir_name):
+            os.mkdir(result_dir_name)
+        np.savetxt(os.path.join(result_dir_name, 'test_raw_nc%d%d.csv' % (i, step)), X[i, :], delimiter=',')
+        np.savetxt(os.path.join(result_dir_name, 'test_cat_nc%d%d.csv' % (i, step)), nmn_label, delimiter=',')
     # save plot to file
-    #np.savetxt('test_raw_nc%d.csv' % (step), X[:,:,0], delimiter=',')
-    #np.savetxt('test_cat_nc%d.csv' % (step), nmn_label[:],delimiter=',')
-    filename1 = 'generated_plot_%04d.png' % (step+1)
+    filename1 = os.path.join(result_dir_name, 'generated_plot_%04d.png') % (step+1)
     pyplot.savefig(filename1)
     pyplot.close()
     # save the generator model
-    filename2 = 'model_%04d.h5' % (step+1)
+    filename2 = os.path.join(result_dir_name, 'model_%04d.h5') % (step+1)
     g_model.save(filename2)
     print('>Saved: %s and %s' % (filename1, filename2))
- 
+
 # train the generator and discriminator
+
+
 def train(g_model, d_model, gan_model, dataset, latent_dim, n_epochs=30, n_batch=64):
     # calculate the number of batches per training epoch
+    # each epoch iterate over all the samples in the dataset
     bat_per_epo = int(dataset[0].shape[0] / n_batch)
     print('batch per epoch: %d' % bat_per_epo)
     # calculate the number of training iterations
@@ -270,25 +305,30 @@ def train(g_model, d_model, gan_model, dataset, latent_dim, n_epochs=30, n_batch
     # manually enumerate epochs
     for i in range(n_steps):
         # get randomly selected 'real' samples
-        [X_real, labels_real], y_real = generate_real_samples(dataset, half_batch)
+        [X_real, labels_real], y_real = generate_real_samples(
+            dataset, half_batch)
         # update discriminator model weights
-        _,d_r1,d_r2 = d_model.train_on_batch(X_real, [y_real, labels_real])
+        _, d_r1, d_r2 = d_model.train_on_batch(X_real, [y_real, labels_real])
         # generate 'fake' examples
-        [X_fake, labels_fake], y_fake = generate_fake_samples(g_model, latent_dim, half_batch)
+        [X_fake, labels_fake], y_fake = generate_fake_samples(
+            g_model, latent_dim, half_batch)
         # update discriminator model weights
-        _,d_f,d_f2 = d_model.train_on_batch(X_fake, [y_fake, labels_fake])
+        _, d_f, d_f2 = d_model.train_on_batch(X_fake, [y_fake, labels_fake])
         # prepare points in latent space as input for the generator
         [z_input, z_labels] = generate_latent_points(latent_dim, n_batch)
         # create inverted labels for the fake samples
         y_gan = ones((n_batch, 1))
         # update the generator via the discriminator's error
-        _,g_1,g_2 = gan_model.train_on_batch([z_input, z_labels], [y_gan, z_labels])
+        _, g_1, g_2 = gan_model.train_on_batch(
+            [z_input, z_labels], [y_gan, z_labels])
         # summarize loss on this batch
-        print('>%d, dr[%.3f,%.3f], df[%.3f,%.3f], g[%.3f,%.3f]' % (i+1, d_r1,d_r2, d_f,d_f2, g_1,g_2))
+        print('>%d, dr[%.3f,%.3f], df[%.3f,%.3f], g[%.3f,%.3f]' %
+              (i+1, d_r1, d_r2, d_f, d_f2, g_1, g_2))
         # evaluate the model performance every 'epoch'
         if (i+1) % (bat_per_epo * 1) == 0:
             summarize_performance(i, g_model, latent_dim)
- 
+
+
 # size of the latent space
 latent_dim = 100
 # create the discriminator
@@ -299,8 +339,13 @@ generator = define_generator(latent_dim)
 gan_model = define_gan(generator, discriminator)
 # load image data
 dataset = load_real_samples()
+
+# save results right after initialization the generator model
+i = 0
+g_model = generator
+summarize_performance(i, g_model, latent_dim)
+
 # train model
 train(generator, discriminator, gan_model, dataset, latent_dim)
-
-
+# train(generator, discriminator, gan_model, dataset, latent_dim, n_batch=2**13)
 

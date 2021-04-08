@@ -1,3 +1,8 @@
+# Comment
+用1D CNN生成time series，没有condition。
+training set是一个长度为10000的series，每个time step有一个real number和一个整数的label
+能生成的是长度为384 steps的片段，不能做condition
+
 # TSGAN - TimeSeries - GAN
 Generation of Time Series data using generative adversarial networks (GANs) for biological purposes.
 

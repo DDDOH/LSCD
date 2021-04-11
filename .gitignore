@@ -3,6 +3,11 @@
 *.jpg
 *.png
 *.h5
+*.txt
+*.csv
+
+# references
+deep-learning-v2-pytorch-master/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

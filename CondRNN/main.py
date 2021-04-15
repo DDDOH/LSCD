@@ -1,30 +1,55 @@
 # %%
+from geomloss import SamplesLoss
 import torch
 import torch.nn as nn
-import synthetic_dataset
+from torchsummary import summary
+from torch.utils.tensorboard import SummaryWriter
+import torchvision.utils as vutils
+from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
 import numpy as np
 from scipy.linalg import sqrtm
 import matplotlib.pyplot as plt
 import os
-from torchsummary import summary
+import io
+
+import datetime
+import utils
+import dataset
+import models
+
+# See how python import self defined modules: https://realpython.com/python-import/
 
 # Get synthetic training set.
 seq_len = 100
 cond_len = 40
-n_sample = 50
+n_sample = 300
 
-dataset = synthetic_dataset.SyntheticDataset(seq_len=seq_len)
-training_set = dataset.sample(n_sample=n_sample)
-# plt.plot(training_set.T, color='r', alpha=0.02)
+data_name = 'PGnorta'  # 'PGnorta' or 'multivariate_normal'
+model_name = 'CondMLP'  # 'CondLSTM' or 'CondMLP'
+if data_name == 'multivariate_normal':
+    data = dataset.multivariate_normal.MultivariateNormal(seq_len=seq_len)
+if data_name == 'PGnorta':
+    data = dataset.pg_norta.get_random_PGnorta(p=seq_len)
+training_set = data.sample(n_sample=n_sample)
+
+
+dirname = os.path.dirname(__file__)
+date = datetime.datetime.now().strftime("%d-%m-%y_%H:%M")
+result_dir = os.path.join(dirname, 'results', date)
+if not os.path.exists(result_dir):
+    os.mkdir(result_dir)
+writer = SummaryWriter(result_dir)
 
 # pre processing
+
+
 class Scaler():
     def __init__(self, data):
         """Initialize the Scaler class.
 
         Args:
-            data (np.array): 2d numpy array. Each row represents one sequence. 
-                             Each column is one timestep. 
+            data (np.array): 2d numpy array. Each row represents one sequence.
+                             Each column is one timestep.
                              Only works for sequence with one feature each time step, temporarily.
         """
         self.data = data
@@ -50,7 +75,8 @@ class Scaler():
     def inverse_transform(self, data):
         return data * self.std + self.mean
 
-scale = False
+
+scale = True
 if scale:
     scaler = Scaler(training_set)
     training_set = scaler.transform()
@@ -58,13 +84,71 @@ if scale:
 training_set = torch.Tensor(training_set).unsqueeze(-1)
 
 
-# %%
+# TODO: Poisson count simulator layer
 
+
+# MLP
+class CondMLP(nn.Module):
+    def __init__(self, seed_dim, cond_len, seq_len, hidden_dim=256):
+        """Initialize a conditional MLP.
+
+        Args:
+            seed_dim (int): The dimension of random seed.
+            cond_len (int): Length of the condition (q).
+            seq_len (int): Length of the sequence (p).
+            hidden_dim (int, optional): Size of hidden layer. Defaults to 256.
+        """
+        super().__init__()
+        self.seed_dim = seed_dim
+        self.cond_len = cond_len
+        self.seq_len = seq_len
+        main = nn.Sequential(
+            nn.Linear(seed_dim + cond_len, hidden_dim), nn.LeakyReLU(0.1, True),
+            nn.Linear(hidden_dim, hidden_dim), nn.LeakyReLU(0.1, True),
+            nn.Linear(hidden_dim, hidden_dim), nn.LeakyReLU(0.1, True),
+            nn.Linear(hidden_dim, seq_len - cond_len),
+        )
+        self.main = main
+
+    def forward(self, X_q, noise):
+        """Generate arrival count in the last p-q time intervals, given the arrival count in the first q time steps.
+
+        Args:
+            X_q (torch.Tensor): Arrival count in the first q time steps. A matrix of shape batch_size * q.
+            noise (torch.Tensor): Random noise. A matrix of shape batch_size * self.seed_dim
+
+        Returns:
+            output (torch.Tensor): Arrival count in the last p - q time steps. A matrix of shape batch_size * (p - q).
+        """
+        mlp_input = torch.cat((X_q, noise), dim=1)
+        output = self.main(mlp_input)
+        return output
+
+
+def predict_MLP(predictor, dataset):
+    """Predict the arrival count in the last p - q time steps, given the arrival count in the first p time steps.
+
+    Args:
+        dataset (np.array): Full data set of size (batch_size, seq_len, n_feature). Only accept n_feature=1.
+        predictor (CondMLP): A CondMLP model.
+
+    Returns:
+        pred_x_qp (torch.Tensor): Predicted arrival count in the last p - q time steps.
+    """
+    assert isinstance(predictor, CondMLP), "input model must be a CondMLP"
+    x_q = torch.Tensor(dataset[:, :predictor.cond_len, 0])
+    batch_size = x_q.shape[0]
+    noise = torch.randn((batch_size, predictor.seed_dim))
+    pred_x_qp = predictor(X_q=x_q, noise=noise)
+    return pred_x_qp.unsqueeze(-1)
+
+
+# LSTM
 class CondLSTM(nn.Module):
     """Conditional LSTM"""
 
     def __init__(self, in_feature, out_feature, n_layers=1, hiddem_dim=256):
-        """Initialize a Conditional LSTM.
+        """Initialize a Conditional LSTM. Can only accept time series with one feature each time step.
 
         Args:
             in_feature (int): Number of features of input sequence in each time step.
@@ -77,6 +161,12 @@ class CondLSTM(nn.Module):
         self.hidden_dim = hidden_dim
         self.in_feature = in_feature
         self.out_feature = out_feature
+
+        # trainable initial state
+        h_0 = torch.randn(self.n_layers, 1, self.hidden_dim)
+        c_0 = torch.randn(self.n_layers, 1, self.hidden_dim)
+        self.h_0 = nn.Parameter(h_0, requires_grad=True)
+        self.c_0 = nn.Parameter(c_0, requires_grad=True)
 
         self.lstm = nn.LSTM(input_size=in_feature, hidden_size=hidden_dim,
                             num_layers=n_layers, batch_first=True)
@@ -97,24 +187,19 @@ class CondLSTM(nn.Module):
                              Else return the predicted value for only the last time step.
         """
         input = torch.cat((value, noise), dim=2)
-        recurrent_features, hidden = self.lstm(input, hidden)
+        if not hidden:
+            batch_size = input.shape[0]
+            hidden = (self.h_0.repeat(1, batch_size, 1),
+                      self.c_0.repeat(1, batch_size, 1))
+            recurrent_features, hidden = self.lstm(input, hidden)
+        else:
+            recurrent_features, hidden = self.lstm(input, hidden)
         output = self.mlp(recurrent_features)
         return output, hidden
 
 
-# Train LSTM to predict
-noise_dim = 2
-hidden_dim = 256
-n_feature = 1
-# may also use embedded time step as input feature
-in_feature = noise_dim + n_feature
-n_layers = 1
-out_feature = n_feature
-# since the number of data in training set is small, use the whole training set in each iteration, temporarily
-batch_size = n_sample
-
-def predict_full(dataset, predictor):
-    """Train predictor for one step.
+def predict_full_RNN(dataset, predictor):
+    """Predict the next time step on the whole sequence using RNN model.
 
     Args:
         dataset (torch.Tensor): Full data set of size (batch_size, seq_len, n_feature)
@@ -124,15 +209,15 @@ def predict_full(dataset, predictor):
     """
     dataset = torch.Tensor(dataset)
     batch_size, seq_len, n_feature = dataset.shape
-    input = dataset[:,:-1,:]
-    target = dataset[:,1:,:]
+    input = dataset[:, :-1, :]
+    target = dataset[:, 1:, :]
     noise = torch.randn(batch_size, seq_len - 1, noise_dim)
     pred_value, hidden = predictor(value=input, noise=noise)
 
     return pred_value
 
 
-def predict_condition(condition, predictor):
+def predict_condition_LSTM(condition, predictor):
     """Predict using CondLSTM with given condition.
 
     Args:
@@ -156,35 +241,106 @@ def predict_condition(condition, predictor):
         hidden[0].detach_()
         hidden[1].detach_()
         pred_value = pred_value.detach()
-        pred_value, hidden = predictor(value=pred_value, noise=noise, hidden=hidden)
+        pred_value, hidden = predictor(
+            value=pred_value, noise=noise, hidden=hidden)
         cond_pred_value.append(pred_value)
 
     cond_pred_value = torch.cat(cond_pred_value, dim=1)
     return cond_pred_value
 
 
-def train_iter(predictor, lr=0.0002, epochs=1000):
+def plot_mean_var_cov(time_series_batch, dpi=35):
+    """Convert a batch of time series to a tensor with a grid of their plots of marginal mean, marginal variance and covariance matrix
 
-    dirname = os.path.dirname(__file__)
-    result_dir = os.path.join(dirname, 'result')
-    if not os.path.exists(result_dir):
-        os.mkdir(result_dir)
+    Args:
+        time_series_batch (Tensor): TODO (batch_size, seq_len, dim) tensor of time series
+        dpi (int): dpi of a single image
 
-    loss = nn.MSELoss()
-    target = training_set[:, 1:]
+    Output:
+        single (channels, width, height): shaped tensor representing an image
+    """
+    images = []
+
+    # marginal mean
+    fig = plt.figure(dpi=dpi)
+    ax = fig.add_subplot(1, 1, 1)
+    ax.set_title('Marginal mean')
+    ax.plot(np.mean(time_series_batch.numpy(), axis=0))
+    canvas = FigureCanvas(fig)
+    canvas.draw()
+    img_data = np.frombuffer(canvas.tostring_rgb(), dtype=np.uint8)
+    img_data = img_data.reshape(canvas.get_width_height()[::-1] + (3,))
+    images.append(img_data)
+    plt.close(fig)
+
+    # marginal variance
+    fig = plt.figure(dpi=dpi)
+    ax = fig.add_subplot(1, 1, 1)
+    ax.set_title('Marginal variance')
+    ax.plot(np.var(time_series_batch.numpy(), axis=0))
+    canvas = FigureCanvas(fig)
+    canvas.draw()
+    img_data = np.frombuffer(canvas.tostring_rgb(), dtype=np.uint8)
+    img_data = img_data.reshape(canvas.get_width_height()[::-1] + (3,))
+    images.append(img_data)
+    plt.close(fig)
+
+    # covariance matrix
+    fig = plt.figure(dpi=dpi)
+    ax = fig.add_subplot(1, 1, 1)
+    ax.set_title('Covariance matrix')
+    ax.matshow(np.cov(time_series_batch.numpy().T))
+    canvas = FigureCanvas(fig)
+    canvas.draw()
+    img_data = np.frombuffer(canvas.tostring_rgb(), dtype=np.uint8)
+    img_data = img_data.reshape(canvas.get_width_height()[::-1] + (3,))
+    images.append(img_data)
+    plt.close(fig)
+
+    # Swap channel
+    images = torch.from_numpy(np.stack(images)).permute(0, 3, 1, 2)
+    # Make grid
+    grid_image = vutils.make_grid(images.detach(), nrow=3)
+    return grid_image
+
+
+def train_iter(model, loss_func, lr=0.0002, epochs=1000):
+    """Train the model with given loss.
+
+    Args:
+        model ([type]): [description]
+        loss_func ([type]): Loss function. The first input is sequence generated by model, second input is target.
+        lr (float, optional): [description]. Defaults to 0.0002.
+        epochs (int, optional): [description]. Defaults to 1000.
+    Returns:
+        model (torch.Tensor): Trained model.
+    """
+
     optimizer = torch.optim.Adam(predictor.parameters(), lr)
 
-    loss_curve = []
+    # loss_curve = []
+    if isinstance(model, CondLSTM):
+        h_records = []
+        c_records = []
+        target = training_set[:, 1:]
+    if isinstance(model, CondMLP):
+        target = training_set[:, cond_len:]
+
     for i in range(epochs):
         predictor.zero_grad()
-        pred_value = predict_full(training_set, predictor)
-        mse_loss = loss(pred_value, target)
-        mse_loss.backward()
-        print(mse_loss)
-        loss_curve.append(mse_loss.detach())
+        pred_value = predict_MLP(predictor, training_set)
+        # TODO pred_value = predict_full_RNN(training_set, predictor)
+        loss = loss_func(pred_value, target)
+        loss.backward()
+        print('[%d/%d] Loss: %.4f' % (i, epochs, loss.item()))
+        # loss_curve.append(loss.detach())
         optimizer.step()
 
-        if i % 2 == 0:
+        if model == 'CondLSTM':
+            h_records.append(predictor.h_0.clone().detach().squeeze())
+            c_records.append(predictor.c_0.clone().detach().squeeze())
+
+        if i % 10 == 0:
             # Plot predicted value vs target value.
             plt.figure(figsize=(10, 5))
             plt.subplot(121)
@@ -192,42 +348,85 @@ def train_iter(predictor, lr=0.0002, epochs=1000):
             plt.plot(target.squeeze(-1).T, c='g', alpha=0.02)
             plt.subplot(122)
             condition = training_set[:, :cond_len]
-            true_on_condition = training_set[:, cond_len:]
-            pred_on_condition = predict_condition(condition, predictor)
-            plt.plot(pred_on_condition.squeeze(-1).detach().T, c='r', alpha=0.02)
-            plt.plot(true_on_condition.squeeze(-1).T, c='g', alpha=0.02)
+            true_dependent = training_set[:, cond_len:]
+
+            # TODO: modify old only LSTM code
+            # TODO pred_on_condition = predict_condition(condition, predictor)
+            # TODO plt.plot(pred_on_condition.squeeze(-1).detach().T,
+            #  c='r', alpha=0.02)
+            fake_dependent = predict_MLP(predictor, training_set).detach()
+
+            plt.plot(fake_dependent.squeeze(-1).T, c='r', alpha=0.1)
+            plt.plot(true_dependent.squeeze(-1).T, c='g', alpha=0.1)
             filename = os.path.join(result_dir, 'prediction_step_%d.jpg' % (i))
             plt.savefig(filename)
             plt.close()
 
-            # Plot loss curve.
-            plt.figure()
-            plt.semilogy(loss_curve, c='r')
-            filename = os.path.join(result_dir, 'loss_curve.jpg')
-            plt.savefig(filename)
-            plt.close()
+            if isinstance(model, CondLSTM):
+                plt.figure(figsize=(20, 5))
+                # plt.pcolormesh(np.stack(h_records, axis=0))
+                plt.subplot(121)
+                plt.plot(np.stack(h_records, axis=0))
+                plt.subplot(122)
+                plt.plot(np.stack(c_records, axis=0))
+                filename = os.path.join(result_dir, 'h_c_records.jpg')
+                plt.savefig(filename)
+                plt.close()
+
+            fake_statistic = plot_mean_var_cov(
+                fake_dependent.squeeze(-1), dpi=45)
+            writer.add_image("fake", fake_statistic, i)
+
+        writer.add_scalar('Loss curve',
+                          loss.item(), i)
+
+        writer.flush()
+
+    return model
 
 
-predictor = CondLSTM(in_feature=in_feature, out_feature=out_feature)
-# seems complicated for hidden if not use two seperate hidden states
+if model_name == 'CondLSTM':
+    # Config for CondLSTM
+    noise_dim = 2
+    hidden_dim = 256
+    n_feature = 1
+    # may also use embedded time step as input feature
+    in_feature = noise_dim + n_feature
+    n_layers = 1
+    out_feature = n_feature
+    # since the number of data in training set is small, use the whole training set in each iteration, temporarily
+    batch_size = n_sample
+    predictor = CondLSTM(in_feature=in_feature, out_feature=out_feature)
+if model_name == 'CondMLP':
+    predictor = CondMLP(seed_dim=seq_len-cond_len,
+                        cond_len=cond_len, seq_len=seq_len, hidden_dim=256)
+
+
 # summary(predictor, [(cond_len, n_feature), (cond_len, noise_dim), (2, 1, hidden_dim)])
 
-train_iter(predictor,lr=0.0005)
+# train the model to minimize MSE
+# loss_func = loss = nn.MSELoss()
+# train_iter(predictor, loss_func, lr=0.0005)
+
+# %%
+# Training to minimize utils.w_distance seems quite unstable and fail to converge
+# even if pretraining to minimize MSE
+# reason unknown
+
+# train_iter(predictor, loss_func=nn.MSELoss(), lr=0.0005, epochs=300)
+
+# def weighted_dist(generated, target):
+#     return utils.w_distance(generated.squeeze(-1), target.squeeze(-1))
+
+# train_iter(predictor, loss_func=weighted_dist, lr=0.0005)
 
 # %%
 
-def w_distance(data_1, data_2):
-    """Compute the Wasserstein between two normal distribution.
+sinkorn_loss = SamplesLoss("sinkhorn", p=2, blur=0.05, scaling=0.8)
 
-    Reference: https://djalil.chafai.net/blog/2010/04/30/wasserstein-distance-between-two-gaussians/
 
-    Args:
-        data_1 (np.array): The first set of data. Each row is one sequence.
-        data_2 (np.array): The second set of data. Each row is one sequence.
-    """
-    m_1, m_2 = np.mean(data_1, axis=0), np.mean(data_1, axis=0)
-    cov_1, cov_2 = np.cov(data_1, rowvar=False), np.cov(data_2, rowvar=False)
-    w_dist = np.linalg.norm(m_1 - m_2)**2 + np.trace(cov_1 + cov_2 -
-                                                     2 * sqrtm(np.matmul(np.matmul(sqrtm(cov_1), cov_2), sqrtm(cov_1))))
-    return w_dist
+def sinkhorn_dist(generated, target):
+    return sinkorn_loss(generated.squeeze(-1), target.squeeze(-1))
 
+
+train_iter(predictor, loss_func=sinkhorn_dist, lr=0.005, epochs=300)

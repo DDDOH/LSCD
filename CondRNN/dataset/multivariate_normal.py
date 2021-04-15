@@ -1,8 +1,9 @@
-#%%
+# %%
 import numpy as np
 import matplotlib.pyplot as plt
 
-class SyntheticDataset():
+
+class MultivariateNormal():
     def __init__(self, seq_len, shape='sin'):
         self.seq_len = seq_len
         self.mean_ls = self.mean_curve(seq_len, shape)
@@ -36,7 +37,8 @@ class SyntheticDataset():
         _ = np.random.uniform(size=(seq_len, seq_len))
         cov_mat = np.matmul(_, _.T)
         if min:
-            cov_mat = (cov_mat - np.min(cov_mat)) / (np.max(cov_mat) - np.min(cov_mat))* (max - min) - min
+            cov_mat = (cov_mat - np.min(cov_mat)) / \
+                (np.max(cov_mat) - np.min(cov_mat)) * (max - min) - min
         return cov_mat
 
     def sample(self, n_sample):

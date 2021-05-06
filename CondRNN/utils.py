@@ -4,6 +4,9 @@ import torch.nn as nn
 import numpy as np
 import scipy.linalg
 from torch.autograd import Function
+import torchvision.utils as vutils
+from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
+import matplotlib.pyplot as plt
 
 
 def cov(x, rowvar=False, bias=False, ddof=None, aweights=None):
@@ -189,21 +192,63 @@ def test_w_distance():
         np.testing.assert_allclose(np_result, torch_result, rtol=1e-3,
                                    err_msg='numpy result:{}, torch result:{}'.format(np_result, torch_result))
 
+# plot figures
 
-# def plot_joint():
 
+def plot_mean_var_cov(time_series_batch, dpi=45):
+    """Convert a batch of time series to a tensor with a grid of their plots of marginal mean, marginal variance and covariance matrix
 
-# def plot_cond(cond, pred_value, real_value):
-#     if cond.ndim == 1:
-#         cond_len = len(cond)
-#     if cond_ndim == 2:
-#         cond = cond[1, :]
-#         cond_len = len(cond)
-#     depend_len = np.shape(pred_value)[1]
-#     plt.figure()
-#     plt.plot(np.arange(cond_len)+1, cond, c='k', alpha=0.1)
-#     plt.plot(np.arange(cond_len, depend_len)+1, pred_value.T, c='r', alpha=0.1)
-#     plt.plot(np.arange(cond_len, depend_len)+1, real_value.T, c='g', alpha=0.1)
+    Args:
+        time_series_batch (Tensor): (batch_size, seq_len) tensor of time series. Note that seq_len doesn't have to be a full sequence. Can start from time step q to plot the dependent only.
+        dpi (int): dpi of a single image
+
+    Output:
+        single (channels, width, height): shaped tensor representing an image
+    """
+    images = []
+
+    # marginal mean
+    fig = plt.figure(dpi=dpi)
+    ax = fig.add_subplot(1, 1, 1)
+    ax.set_title('Marginal mean')
+    ax.plot(np.mean(time_series_batch.numpy(), axis=0))
+    canvas = FigureCanvas(fig)
+    canvas.draw()
+    img_data = np.frombuffer(canvas.tostring_rgb(), dtype=np.uint8)
+    img_data = img_data.reshape(canvas.get_width_height()[::-1] + (3,))
+    images.append(img_data)
+    plt.close(fig)
+
+    # marginal variance
+    fig = plt.figure(dpi=dpi)
+    ax = fig.add_subplot(1, 1, 1)
+    ax.set_title('Marginal variance')
+    ax.plot(np.var(time_series_batch.numpy(), axis=0))
+    canvas = FigureCanvas(fig)
+    canvas.draw()
+    img_data = np.frombuffer(canvas.tostring_rgb(), dtype=np.uint8)
+    img_data = img_data.reshape(canvas.get_width_height()[::-1] + (3,))
+    images.append(img_data)
+    plt.close(fig)
+
+    # covariance matrix
+    fig = plt.figure(dpi=dpi)
+    ax = fig.add_subplot(1, 1, 1)
+    ax.set_title('Covariance matrix')
+    img = ax.matshow(np.cov(time_series_batch.numpy().T))
+    fig.colorbar(img)
+    canvas = FigureCanvas(fig)
+    canvas.draw()
+    img_data = np.frombuffer(canvas.tostring_rgb(), dtype=np.uint8)
+    img_data = img_data.reshape(canvas.get_width_height()[::-1] + (3,))
+    images.append(img_data)
+    plt.close(fig)
+
+    # Swap channel
+    images = torch.from_numpy(np.stack(images)).permute(0, 3, 1, 2)
+    # Make grid
+    grid_image = vutils.make_grid(images.detach(), nrow=3)
+    return grid_image
 
 
 if __name__ == "__main__":

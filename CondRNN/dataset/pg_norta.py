@@ -232,6 +232,8 @@ def get_random_PGnorta(p=24):
 
 
 def test_sample_cond(pgnorta):
+    # TODO Add a doc string.
+    # TODO Add KS Test.
     q = 2
     X_q = np.round(pgnorta.base_intensity[:q])
     n_sample_cond = 10000

@@ -1,19 +1,17 @@
 # %%
-from scipy.stats import multivariate_normal
-from scipy import stats
 import os
-import io
 import datetime
-from geomloss import SamplesLoss
-import torch
-from torch.utils.tensorboard import SummaryWriter
 import numpy as np
 import matplotlib.pyplot as plt
+# from geomloss import SamplesLoss
+import torch
+from torch.utils.tensorboard import SummaryWriter
 
-import utils
-import dataset
-import models
-import metric
+
+from lscd import utils
+from lscd import dataset
+from lscd import models
+from lscd import metric
 
 # TODO
 """
@@ -46,8 +44,7 @@ Others
 # TODO Make MLP present acceptable results.
 
 # Get synthetic training set.
-seq_len = 100
-cond_len = 40
+cond_len = 10
 n_sample = 300
 
 data_name = 'PGnorta'  # 'PGnorta' or 'multivariate_normal'
@@ -55,16 +52,20 @@ model_name = 'BaselineGMM'  # 'CondLSTM' or 'CondMLP' or 'BaselineGMM
 if data_name == 'multivariate_normal':
     data = dataset.multivariate_normal.MultivariateNormal(seq_len=seq_len)
 if data_name == 'PGnorta':
-    data = dataset.pg_norta.get_random_PGnorta(p=seq_len)
+    # TODO use the parameter for PGnorta from Pierre paper
+    data = dataset.pg_norta.get_PGnorata_from_img()
+    seq_len = data.seq_len
 training_set = data.sample(n_sample=n_sample)
-
 
 dirname = os.path.dirname(__file__)
 date = datetime.datetime.now().strftime("%d-%m-%y_%H:%M")
-result_dir = os.path.join(dirname, 'results', date)
+result_time_dir = os.path.join(dirname, 'results', date)
+result_dir = os.path.join(dirname, 'results')
 if not os.path.exists(result_dir):
     os.mkdir(result_dir)
-writer = SummaryWriter(result_dir)
+if not os.path.exists(result_time_dir):
+    os.mkdir(result_time_dir)
+writer = SummaryWriter(result_time_dir)
 
 # pre processing
 
@@ -110,20 +111,23 @@ if scale:
 
 training_set = torch.Tensor(training_set).unsqueeze(-1)
 conditions = training_set[:, :cond_len, :]
+dependents = training_set[:, cond_len:, :]
 
 # baseline methods
 if model_name == 'BaselineGMM':
+    X_q = conditions.squeeze(-1)[0, :]
     from sklearn.mixture import GaussianMixture
-    gmm_joint = GaussianMixture(n_components=2, random_state=0).fit(
+    gmm_joint = GaussianMixture(n_components=10, random_state=0).fit(
         training_set.squeeze(-1))
 
     gmm_cond = models.gmm.get_cond_gm(
-        gmm_joint, x_q=conditions.squeeze(-1)[0, :])
+        gmm_joint, x_q=X_q)
 
-    gmm_cond_samples = gmm_cond.sample(n_samples=1000)
-
+    gmm_cond_samples, _ = gmm_cond.sample(n_samples=1000)
+    real_cond_samples = data.sample_cond(X_1q=X_q, n_sample=1000)
     # evaluate
-    metric.classical.
+    metric.classical.evaluate(
+        real_cond_samples=real_cond_samples, fake_cond_samples=gmm_cond_samples, dir_filename='test_gmm.jpg')
 
 
 # TODO: Poisson count simulator layer

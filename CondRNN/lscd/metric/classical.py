@@ -2,6 +2,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import scipy.linalg
+import torch
 """Compare the estimated conditional distribution with the real conditional distribution.
 
 Accept samples from the estimated conditional distribution and the real conditional distribution.
@@ -23,7 +24,14 @@ Evaluation metric
 
 
 def marginal_mean_plot(real_cond_samples, fake_cond_samples, ax):
-    # marginal mean
+    """Plot the marginal mean for real samples and fake samples.
+
+    Args:
+        real_cond_samples (np.array): 2D array of shape (n_samples, cond_len)
+        fake_cond_samples (np.array): 2D array of shape (n_samples, cond_len)
+        ax ([type]): [description]
+    """
+    cond_len = np.shape(real_cond_samples)[1]
     real_marginal_mean = np.mean(real_cond_samples, axis=0)
     fake_marginal_mean = np.mean(fake_cond_samples, axis=0)
     ax.plot(real_marginal_mean, label='Real mean')
@@ -34,6 +42,14 @@ def marginal_mean_plot(real_cond_samples, fake_cond_samples, ax):
 
 
 def marginal_var_plot(real_cond_samples, fake_cond_samples, ax):
+    """Plot the marginal variance for real samples and fake samples.
+
+    Args:
+        real_cond_samples (np.array): 2D array of shape (n_samples, cond_len)
+        fake_cond_samples (np.array): 2D array of shape (n_samples, cond_len)
+        ax ([type]): [description]
+    """
+    cond_len = np.shape(real_cond_samples)[1]
     real_marginal_var = np.var(real_cond_samples, axis=0)
     fake_marginal_var = np.var(fake_cond_samples, axis=0)
     ax.plot(real_marginal_var, label='Real variance')
@@ -45,8 +61,15 @@ def marginal_var_plot(real_cond_samples, fake_cond_samples, ax):
 
 # Pierre correlation
 def pierre_corr_plot(real_cond_samples, fake_cond_samples, ax):
+    """Plot the pierre correlation for real samples and fake samples.
+
+    Args:
+        real_cond_samples (np.array): 2D array of shape (n_samples, cond_len)
+        fake_cond_samples (np.array): 2D array of shape (n_samples, cond_len)
+        ax ([type]): [description]
+    """
     def pierre_corr(samples):
-        """Compute the pierre correlation.
+        """Compute the pierre correlation coefficients.
 
         Args:
             samples (np.array): 2D array of shape (n_sample, seq_len)
@@ -60,9 +83,9 @@ def pierre_corr_plot(real_cond_samples, fake_cond_samples, ax):
         for i in range(1, seq_len):
             sum_x_i = np.sum(samples[:, :i], axis=1)
             sum_x_ip = np.sum(samples[:, i:], axis=1)
-            corr_ls[i - 1] = np.correlate(sum_x_i, sum_x_ip)
+            corr_ls[i - 1] = np.corrcoef(sum_x_i, sum_x_ip)
         return corr_ls
-
+    cond_len = np.shape(real_cond_samples)[1]
     real_pierre_corr = pierre_corr(real_cond_samples)
     fake_pierre_corr = pierre_corr(fake_cond_samples)
     ax.plot(real_pierre_corr, label='Real samples')
@@ -74,8 +97,6 @@ def pierre_corr_plot(real_cond_samples, fake_cond_samples, ax):
     ax.legend()
 
 
-# %%
-# TODO Gaussian approximated W-distance
 def w_distance(data_1, data_2):
     """Compute the Wasserstein between two normal distribution.
 
@@ -96,6 +117,13 @@ def w_distance(data_1, data_2):
 
 
 def w_distance_plot(real_cond_samples, fake_cond_samples, ax):
+    """Plot the w-distance for real samples and fake samples.
+
+    Args:
+        real_cond_samples (np.array or torch.tensor): 2D array of shape (n_samples, cond_len)
+        fake_cond_samples (np.array or torch.tensor): 2D array of shape (n_samples, cond_len)
+        ax ([type]): [description]
+    """
     w_dist = w_distance(real_cond_samples, fake_cond_samples)
     string = 'W-distance between real samples\n and fake samples is {number:.{digits}f}'.format(
         number=w_dist, digits=4)
@@ -104,6 +132,20 @@ def w_distance_plot(real_cond_samples, fake_cond_samples, ax):
 
 
 def evaluate(real_cond_samples, fake_cond_samples, dir_filename):
+    """Make a comparision for real samples and fake samples.
+
+    Will create a figure contains the marginal mean, marginal variance, pierre correlation and w-distance.
+
+    Args:
+        real_cond_samples (np.array or torch.tensor): 2D array of shape (n_samples, cond_len)
+        fake_cond_samples (np.array or torch.tensor): 2D array of shape (n_samples, cond_len)
+        dir_filename (string): The location to save the figure. Should include both the directory path and the file name, e.g., 'results/figure.jpg'.
+    """
+    if isinstance(real_cond_samples, torch.Tensor):
+        real_cond_samples = real_cond_samples.numpy()
+    if isinstance(fake_cond_samples, torch.Tensor):
+        fake_cond_samples = fake_cond_samples.numpy()
+    assert np.shape(real_cond_samples)[1] == np.shape(fake_cond_samples)[1]
     fig, axs = plt.subplots(1, 4, figsize=(15, 3))
     marginal_mean_plot(real_cond_samples, fake_cond_samples, axs[0])
     marginal_var_plot(real_cond_samples, fake_cond_samples, axs[1])

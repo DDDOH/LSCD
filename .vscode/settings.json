@@ -1,0 +1,9 @@
+{
+    "python.pythonPath": "/Users/shuffle_new/miniconda3/envs/new/bin/python",
+    "python.linting.pylintEnabled": true,
+    "python.linting.enabled": true,
+    // to aviod the unresolved error for self defined module
+    "python.autoComplete.extraPaths": [
+        "./CondRNN/lscd"
+    ],
+}

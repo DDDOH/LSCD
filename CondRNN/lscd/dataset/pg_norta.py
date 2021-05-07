@@ -9,6 +9,8 @@ from scipy.stats import pearsonr
 from scipy.stats import poisson
 import progressbar
 import os
+import matplotlib.image as mpimg
+from .. import utils
 
 
 class PGnorta():
@@ -20,11 +22,14 @@ class PGnorta():
             cov (np.array): Covariance matrix of the underlying normal copula.
             alpha (np.array): A list containing the parameter of gamma distribution in each time step.
         """
+        assert len(base_intensity) == len(alpha) and len(alpha) == np.shape(
+            cov)[0] and np.shape(cov)[0] == np.shape(cov)[1]
         assert min(base_intensity) > 0, 'only accept nonnegative intensity'
         self.base_intensity = base_intensity
         self.p = len(base_intensity)  # the sequence length
         self.cov = cov
         self.alpha = alpha
+        self.seq_len = len(base_intensity)
 
     def z_to_lam(self, Z, first=True):
         """Convert Z to intensity.
@@ -125,11 +130,13 @@ class PGnorta():
         def f_z(z): return p_x_on_z(X_1q, z) * p_z(z)
 
         # *************************************** sample from P(Z_q|X_q) *************************************** #
-        # empirically set this as a multivariate normal distribution with mean zero can covariance self.cov[:q, :q] seems good
-        # covariance matrix of the multivariate normal distribution of h
+        # empirically set this as a multivariate normal distribution with mean zero and covariance self.cov[:q, :q] seems good
+        # covariance matrix of the multivariate normal distribution h
         h_cov = self.cov[:q, :q]
         # it seems safe to sample n_sample * 4 amount of candidate points.
-        n_candidate = n_sample * 4
+        # TODO improve accept ratio for high diemnsional case
+        # TODO add a while loop till the samples amount is enough
+        n_candidate = n_sample * 20
         Z = multivariate_normal.rvs(np.zeros(q), h_cov, n_candidate)
         h_Z = multivariate_normal.pdf(Z, mean=np.zeros(q), cov=h_cov)
 
@@ -145,7 +152,8 @@ class PGnorta():
         whether_accepted = uniform <= accept_prob
         n_accepted = sum(whether_accepted)
         accepted_Z_q = Z[whether_accepted, :]
-        assert n_accepted >= n_sample, "failed sampling enough data"
+        assert n_accepted >= n_sample, "failed sampling enough data, expected {}, but got {}".format(
+            n_sample, n_accepted)
         accepted_Z_q = accepted_Z_q[:n_sample, :]
 
         print('Total sampled Z: {}, accepted: {}, accept ratio: {:.4f}%, desired number of samples:{}'.format(
@@ -194,6 +202,55 @@ class PGnorta():
         X_qp = np.random.poisson(intensity_qp)
 
         return X_qp
+
+
+def get_PGnorata_from_img():
+    """Get parameters for PGnorta model from the image.
+
+    Returns:
+        (PGnorta): A PGnorta instance with the parameters come from images.
+    """
+    # TODO add support for more images.
+
+    # read correlation matrix.
+    corr_img = 'CondRNN/lscd/dataset/2_commercial_call_center_corr.png'
+    img = mpimg.imread(corr_img)
+    if corr_img == 'CondRNN/lscd/dataset/2_commercial_call_center_corr.png':
+        colorbar = img[:, 1255, :3]
+        p = 24
+        width = 1220
+        height = 1115
+
+    n_color = np.shape(colorbar)[0]
+    width_interval = width / (p + 1)
+    height_interval = height/(p+1)
+    width_loc = np.arange(width_interval/2, width-width_interval/2, p)
+    height_loc = np.arange(height_interval/2, height-height_interval/2, p)
+    corr_mat = np.zeros((p, p))
+    for i in range(p):
+        for j in range(p):
+            rgb_ij = img[int(height_loc[i]), int(width_loc[j]), :3]
+            color_dist = np.sum(np.abs(colorbar - rgb_ij), axis=1)
+            corr_mat[i, j] = 1 - np.argmin(color_dist)/n_color
+    corr_mat = utils.utils.nearestPD(corr_mat)
+
+    # read mean curve.
+    mean_img = 'CondRNN/lscd/dataset/2_commercial_call_center_mean.png'
+    img = mpimg.imread(mean_img)
+    line_img = img[28:625, 145:1235, :3]
+    p = 24
+    count_min = 100
+    count_max = 350
+    y_axis_length, x_axis_length = np.shape(line_img)[0], np.shape(line_img)[1]
+
+    loc = np.linspace(0, x_axis_length-1, p)
+    mean = np.zeros(p)
+    for i in range(p):
+        mean[i] = (1 - np.argmin(line_img[:, int(loc[i]), 1]) /
+                   y_axis_length)*(count_max-count_min) + count_min
+
+    alpha = np.random.uniform(6, 12, p)
+    return PGnorta(base_intensity=mean, cov=corr_mat, alpha=alpha)
 
 
 def get_random_PGnorta(p=24):
@@ -261,8 +318,10 @@ def test_sample_cond(pgnorta):
 
 
 if __name__ == "__main__":
-    pgnorta = get_random_PGnorta()
-    test_sample_cond(pgnorta)
+    # pgnorta = get_random_PGnorta()
+    # test_sample_cond(pgnorta)
+
+    pg_norta = get_PGnorata_from_img()
 
 
 # TODO: test acceptance ratio and sampling performance on high dimensional case.

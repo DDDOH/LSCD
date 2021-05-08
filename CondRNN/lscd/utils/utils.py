@@ -1,5 +1,4 @@
 import torch
-import torch.nn as nn
 # import dataset.multivariate_normal
 from numpy import linalg as la
 import numpy as np

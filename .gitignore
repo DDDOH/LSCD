@@ -8,7 +8,8 @@
 CondRNN/results
 
 # references
-deep-learning-v2-pytorch-master/
+References
+numpy-main
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

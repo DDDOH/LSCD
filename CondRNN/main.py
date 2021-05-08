@@ -39,23 +39,23 @@ Others
 """
 # See how python import self defined modules: https://realpython.com/python-import/
 
-# TODO Add GMM and KDE for comparision.
+# TODO Add KDE for comparision.
 # TODO Finalize visulization code.
 # TODO Make MLP present acceptable results.
 
 # Get synthetic training set.
-cond_len = 10
-n_sample = 300
+COND_LEN = 10
+N_SAMPLE = 2000
 
-data_name = 'PGnorta'  # 'PGnorta' or 'multivariate_normal'
-model_name = 'BaselineGMM'  # 'CondLSTM' or 'CondMLP' or 'BaselineGMM
-if data_name == 'multivariate_normal':
-    data = dataset.multivariate_normal.MultivariateNormal(seq_len=seq_len)
-if data_name == 'PGnorta':
-    # TODO use the parameter for PGnorta from Pierre paper
+DATA_NAME = 'PGnorta'  # 'PGnorta' or 'multivariate_normal'
+MODEL_NAME = 'BaselineGMM'  # 'CondLSTM' or 'CondMLP' or 'BaselineGMM
+if DATA_NAME == 'multivariate_normal':
+    SEQ_LEN = 50
+    data = dataset.multivariate_normal.MultivariateNormal(seq_len=SEQ_LEN)
+if DATA_NAME == 'PGnorta':
     data = dataset.pg_norta.get_PGnorata_from_img()
     seq_len = data.seq_len
-training_set = data.sample(n_sample=n_sample)
+training_set = data.sample(n_sample=N_SAMPLE)
 
 dirname = os.path.dirname(__file__)
 date = datetime.datetime.now().strftime("%d-%m-%y_%H:%M")
@@ -110,27 +110,27 @@ if scale:
     training_set = scaler.transform()
 
 training_set = torch.Tensor(training_set).unsqueeze(-1)
-conditions = training_set[:, :cond_len, :]
-dependents = training_set[:, cond_len:, :]
+conditions = training_set[:, :COND_LEN, :]
+dependents = training_set[:, COND_LEN:, :]
 
 # baseline methods
-if model_name == 'BaselineGMM':
+if MODEL_NAME == 'BaselineGMM':
     X_q = conditions.squeeze(-1)[0, :]
     from sklearn.mixture import GaussianMixture
     gmm_joint = GaussianMixture(n_components=10, random_state=0).fit(
         training_set.squeeze(-1))
-
     gmm_cond = models.gmm.get_cond_gm(
         gmm_joint, x_q=X_q)
 
     gmm_cond_samples, _ = gmm_cond.sample(n_samples=1000)
-    real_cond_samples = data.sample_cond(X_1q=X_q, n_sample=1000)
-    # evaluate
+    real_cond_samples = data.sample_cond(X_1q=X_q, n_sample=200)
+
     metric.classical.evaluate(
         real_cond_samples=real_cond_samples, fake_cond_samples=gmm_cond_samples, dir_filename='test_gmm.jpg')
 
+if MODEL_NAME == 'BaselineKDE':
 
-# TODO: Poisson count simulator layer
+    # TODO: Poisson count simulator layer
 
 
 def train_iter(model, loss_func, lr=0.0002, epochs=1000):
@@ -153,7 +153,7 @@ def train_iter(model, loss_func, lr=0.0002, epochs=1000):
         c_records = []
         target = training_set[:, 1:]
     if isinstance(model, models.model.CondMLP):
-        target = training_set[:, cond_len:]
+        target = training_set[:, COND_LEN:]
 
     for i in range(epochs):
         predictor.zero_grad()
@@ -176,8 +176,8 @@ def train_iter(model, loss_func, lr=0.0002, epochs=1000):
             plt.plot(pred_value.squeeze(-1).detach().T, c='r', alpha=0.02)
             plt.plot(target.squeeze(-1).T, c='g', alpha=0.02)
             plt.subplot(122)
-            condition = training_set[:, :cond_len]
-            true_dependent = training_set[:, cond_len:]
+            condition = training_set[:, :COND_LEN]
+            true_dependent = training_set[:, COND_LEN:]
 
             # TODO: modify old only LSTM code
             # TODO pred_on_condition = predict_condition(condition, predictor)
@@ -215,7 +215,7 @@ def train_iter(model, loss_func, lr=0.0002, epochs=1000):
     return model
 
 
-if model_name == 'CondLSTM':
+if MODEL_NAME == 'CondLSTM':
     # Config for CondLSTM
     noise_dim = 2
     hidden_dim = 256
@@ -225,15 +225,15 @@ if model_name == 'CondLSTM':
     n_layers = 1
     out_feature = n_feature
     # since the number of data in training set is small, use the whole training set in each iteration, temporarily
-    batch_size = n_sample
+    batch_size = N_SAMPLE
     predictor = models.model.CondLSTM(
         in_feature=in_feature, out_feature=out_feature)
-if model_name == 'CondMLP':
-    predictor = models.model.CondMLP(seed_dim=seq_len-cond_len,
-                                     cond_len=cond_len, seq_len=seq_len, hidden_dim=256)
+if MODEL_NAME == 'CondMLP':
+    predictor = models.model.CondMLP(seed_dim=seq_len-COND_LEN,
+                                     COND_LEN=COND_LEN, seq_len=seq_len, hidden_dim=256)
 
 
-# summary(predictor, [(cond_len, n_feature), (cond_len, noise_dim), (2, 1, hidden_dim)])
+# summary(predictor, [(COND_LEN, n_feature), (COND_LEN, noise_dim), (2, 1, hidden_dim)])
 
 # train the model to minimize MSE
 # loss_func = loss = nn.MSELoss()

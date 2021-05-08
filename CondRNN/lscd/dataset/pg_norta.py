@@ -1,15 +1,13 @@
 # %%
+import os
 import numpy as np
 import matplotlib.pyplot as plt
-import math
+import matplotlib.image as mpimg
 from scipy.stats import multivariate_normal
 from scipy.stats import norm
 from scipy.stats import gamma
-from scipy.stats import pearsonr
 from scipy.stats import poisson
 import progressbar
-import os
-import matplotlib.image as mpimg
 from .. import utils
 
 
@@ -130,28 +128,39 @@ class PGnorta():
         def f_z(z): return p_x_on_z(X_1q, z) * p_z(z)
 
         # *************************************** sample from P(Z_q|X_q) *************************************** #
-        # empirically set this as a multivariate normal distribution with mean zero and covariance self.cov[:q, :q] seems good
+
         # covariance matrix of the multivariate normal distribution h
         h_cov = self.cov[:q, :q]
-        # it seems safe to sample n_sample * 4 amount of candidate points.
+        h_mean = np.zeros(q)  # mean of the multivariate normal distribution h
+        # empirically set h as a multivariate normal distribution with mean zero and covariance self.cov[:q, :q] seems good
+
         # TODO improve accept ratio for high diemnsional case
-        # TODO add a while loop till the samples amount is enough
-        n_candidate = n_sample * 20
-        Z = multivariate_normal.rvs(np.zeros(q), h_cov, n_candidate)
-        h_Z = multivariate_normal.pdf(Z, mean=np.zeros(q), cov=h_cov)
 
-        f_Z = f_z(Z)
-        uniform = np.random.rand(n_candidate)
+        n_accepted = 0
+        n_candidate = 0
+        batch_size = n_sample * 50  # how many samples in one while iteration.
+        accepted_Z_q = np.zeros((n_sample, q))
+        with progressbar.ProgressBar(max_value=n_sample) as bar:
+            while n_accepted < n_sample:
+                n_candidate += batch_size
+                Z = multivariate_normal.rvs(np.zeros(q), h_cov, batch_size)
+                h_Z = multivariate_normal.pdf(Z, mean=np.zeros(q), cov=h_cov)
 
-        c = np.max(f_Z / h_Z) * 1.2
-        accept_prob = f_Z / h_Z / c
+                f_Z = f_z(Z)
+                uniform = np.random.rand(batch_size)
 
-        plt.figure()
-        plt.hist(accept_prob, bins=100)
+                c = np.max(f_Z / h_Z) * 1.2
+                accept_prob = f_Z / h_Z / c
 
-        whether_accepted = uniform <= accept_prob
-        n_accepted = sum(whether_accepted)
-        accepted_Z_q = Z[whether_accepted, :]
+                whether_accepted = uniform <= accept_prob
+                new_accepted = sum(whether_accepted)
+                # the accepted samples that have space to be written into accepted_Z_q
+                useful_accepted = min(n_sample - n_accepted, new_accepted)
+                accepted_Z_q[n_accepted:n_accepted +
+                             useful_accepted, :] = Z[whether_accepted, :][:useful_accepted, :]
+                n_accepted += useful_accepted
+                bar.update(n_accepted)
+
         assert n_accepted >= n_sample, "failed sampling enough data, expected {}, but got {}".format(
             n_sample, n_accepted)
         accepted_Z_q = accepted_Z_q[:n_sample, :]

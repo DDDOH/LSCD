@@ -83,7 +83,7 @@ def pierre_corr_plot(real_cond_samples, fake_cond_samples, ax):
         for i in range(1, seq_len):
             sum_x_i = np.sum(samples[:, :i], axis=1)
             sum_x_ip = np.sum(samples[:, i:], axis=1)
-            corr_ls[i - 1] = np.corrcoef(sum_x_i, sum_x_ip)
+            corr_ls[i - 1] = np.corrcoef(sum_x_i, sum_x_ip)[0, 1]
         return corr_ls
     cond_len = np.shape(real_cond_samples)[1]
     real_pierre_corr = pierre_corr(real_cond_samples)

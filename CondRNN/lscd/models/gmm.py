@@ -1,11 +1,70 @@
+# %%
 import matplotlib.pyplot as plt
 import numpy as np
 from scipy.stats import multivariate_normal
 from sklearn.mixture import GaussianMixture
+
 # from .. import utils
+from base_cde import BaseCDE
+import progressbar
 
 
-class CGMM():
+class SelfGMM():
+    """The self defined GMM which supports sample and pdf method.
+    """
+
+    def __init__(self, mean, cov, weight):
+        """[summary]
+
+        Args:
+            mean (np.array): 2D array of shape (n_component, n_feature)
+            cov (np.array): 3D array of shape (n_component, n_feature, n_feature)
+            weight (np.array): 1D array of shape (n_component)
+        """
+        self.mean = mean
+        self.cov = cov
+        self.weight = weight
+        assert np.isclose(np.sum(weight), 1)
+        self.n_feature = np.shape(mean)[1]
+        self.n_component = np.shape(mean)[0]
+
+    def sample(self, n_sample):
+        """Sampling from the GMM.
+
+        Args:
+            n_sample (int): The amount of samples.
+
+        Returns:
+            np.array: 2D array of shape (n_sample, n_feature)
+        """
+        sample_ls = np.zeros((n_sample, self.n_feature))
+        for i in range(n_sample):
+            which_component = np.random.choice(
+                self.n_component, p=self.weight_ls)
+            one_training_sample = np.random.multivariate_normal(
+                mean=self.mean[which_component, :], cov=self.cov[which_component, :, :])
+            sample_ls[i, :] = one_training_sample
+        self.n_sample = n_sample
+        self.sample_ls = sample_ls
+        return sample_ls
+
+    def pdf(self, x):
+        """Calculate the pdf at x.
+
+        Args:
+            x (np.array): [description]
+
+        Returns:
+            [type]: [description]
+        """
+        pdf_val = 0
+        for i in range(self.n_component):
+            pdf_val += self.weight[i] * multivariate_normal.pdf(
+                x, mean=self.mean[i, :], cov=self.cov[i, :, :])
+        return pdf_val
+
+
+class CGMM(BaseCDE):
     """Conditional density estimation using GMM.
     """
 
@@ -16,16 +75,6 @@ class CGMM():
         self.joint = np.stack([condition, dependent], axis=1)
         self.gmm_joint = GaussianMixture(
             n_components=n_components, random_state=0).fit(self.joint)
-
-    @classmethod
-    def _handle_shape(cls, data):
-        if isinstance(data, (np.ndarray, list)):
-            data = np.array(data)
-            if data.ndim == 1:
-                data = np.expand_dims(data, axis=1)
-        else:
-            data = np.array([[data]])
-        return data
 
     @classmethod
     def get_conditional_mean_cov_multivariate_gaussian(cls, condition, mean, cov):
@@ -72,7 +121,9 @@ class CGMM():
             0], np.shape(new_condition)[1]
         seq_len = np.shape(gmm_joint.means_)[1]
         cond_gm_ls = np.empty(n_sample, dtype=object)
-        for i in range(n_sample):  # for the i-th condition
+        # for the i-th condition
+        # TODO use the same cond_gmm for the same conditions to make the code runs faster.
+        for i in progressbar.progressbar(range(n_sample)):
             condition = new_condition[i, :]
             marginal = 0
             for l in range(n_components):  # for the l-th component
@@ -113,44 +164,95 @@ class CGMM():
                 cond_weight_ls[k] = gmm_joint.weights_[k] * multivariate_normal.pdf(
                     condition, mean=mean_k_known, cov=cov_k_known, allow_singular=True) / marginal
 
-            cond_gm = GaussianMixture(n_components=n_components)
-            cond_gm.weights_ = cond_weight_ls
-            cond_gm.means_ = cond_mean_ls
-            cond_gm.covariances_ = cond_cov_ls
+            cond_gm = SelfGMM(mean=cond_mean_ls,
+                              cov=cond_cov_ls, weight=cond_weight_ls)
             cond_gm_ls[i] = cond_gm
         return cond_gm_ls
 
-    def cond_pdf(self, new_condition, new_dependent):
+    def joint_pdf(self, new_condition, new_dependent):
         new_condition = self._handle_shape(new_condition)
         new_dependent = self._handle_shape(new_dependent)
-        gmm_cond_ls = self.get_cond_gm(
+        joint_samples = np.hstack([new_condition, new_dependent])
+        return np.exp(self.gmm_joint.score_samples(joint_samples))
+
+    def cond_pdf(self, new_condition, new_dependent):
+        """Use the fitted GMM, get the conditional pdf value at new_condition and new_dependent.
+
+        Args:
+            new_condition ([type]): [description]
+            new_dependent ([type]): [description]
+
+        Returns:
+            [type]: [description]
+        """
+        new_condition = self._handle_shape(new_condition)
+        new_dependent = self._handle_shape(new_dependent)
+        cond_gmm_ls = self.get_cond_gm(
             self.gmm_joint, new_condition=new_condition)
         n_sample = np.shape(new_condition)[0]
-        raise NotImplementedError
-        # TODO add pdf support for GaussianMixture if needed.
-        # return [gmm_cond_ls[i].pdf(new_dependent[i, :]) for i in range(n_sample)]
+        pdf_val_ls = np.zeros(n_sample)
+        for i in range(n_sample):
+            pdf_val_ls[i] = cond_gmm_ls[i].pdf(new_dependent[i, :])
+        return pdf_val_ls
+
+    def cond_samples(self, new_condition, n_sample):
+        """Sample from the fitted conditional distribution.
+
+        Args:
+            new_condition ([type]): [description]
+        """
+        new_condition = self._handle_shape(new_condition)
+        cond_gmm = self.get_cond_gm(
+            self.gmm_joint, new_condition=new_condition)
+        return cond_gmm.sample(n_sample)
 
 
 if __name__ == '__main__':
     import pandas as pd
     import matplotlib.pyplot as plt
+    # CondRNN/lscd/models/bivariate_dataset.csv')
     bivaraite_dataset = pd.read_csv('CondRNN/lscd/models/bivariate_dataset.csv')
     bivaraite_dataset = bivaraite_dataset.values
-    # get conditional density estimation
-    cgmm = CGMM(condition=bivaraite_dataset[:, 0],
-                dependent=bivaraite_dataset[:, 1], n_components=10)
 
-    x = np.arange(-50, 300, 5)
-    y = np.arange(1, 6, 0.1)
+    cgmm = CGMM(condition=bivaraite_dataset[:, 0],
+                dependent=bivaraite_dataset[:, 1], n_components=5)
+
+    x = np.arange(-50, 300, 20)
+    y = np.arange(1, 6, 0.5)
     xx = np.repeat(x, len(y))
     yy = np.tile(y, len(x))
+
+    plt.figure(figsize=(15, 4))
+    plt.subplot(121)
     cond_pdf_val = cgmm.cond_pdf(
-        new_condition=x, new_dependent=y)
-    z = cond_pdf_val.reshape(len(x), len(y)).T
-    plt.contourf(x, y, z)
+        new_condition=xx, new_dependent=yy)
+    z_cond = cond_pdf_val.reshape(len(x), len(y)).T
+
+    plt.contourf(x, y, z_cond)
     plt.scatter(bivaraite_dataset[:, 0],
-                bivaraite_dataset[:, 1], s=5, c='y')
+                bivaraite_dataset[:, 1], s=5, c='white', edgecolors='black')
     plt.xlabel('Condition')
     plt.ylabel('Dependent')
+    plt.title('Conditional pdf')
     plt.colorbar()
-    plt.savefig('2D ckde.jpg')
+
+    plt.subplot(122)
+    z_joint = cgmm.joint_pdf(new_condition=xx, new_dependent=yy).reshape(
+        len(x), len(y)).T
+    plt.contourf(x, y, z_joint)
+    plt.scatter(bivaraite_dataset[:, 0],
+                bivaraite_dataset[:, 1], s=5, c='white', edgecolors='black')
+    plt.xlabel('Condition')
+    plt.ylabel('Dependent')
+    plt.title('Joint pdf')
+    # This joint pdf looks bad because the scale of condition is much more larger than the scale of dependent.
+    plt.colorbar()
+    plt.savefig('2D cgmm.jpg')
+
+    # check that under the same condition but with different dependent,
+    # the joint_pdf / cond_pdf all has the same ratio.
+    for i in range(len(x)):
+        ratio = z_joint[:, i] / z_cond[:, i]
+        assert np.isclose(ratio.min(), ratio.max())
+
+# %%

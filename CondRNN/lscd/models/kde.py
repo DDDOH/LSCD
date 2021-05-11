@@ -9,12 +9,12 @@ Reference:
 """
 import numpy as np
 from scipy.stats import gaussian_kde
-
+from base_cde import BaseCDE
 # TODO sample from estimated conditional distribution
 
 
 class CKDE():
-    def __init__(self, condition, )
+    def __init__(self, condition, dependent):
 
 
 def kde_get_cond_pdf(condition, dependent):

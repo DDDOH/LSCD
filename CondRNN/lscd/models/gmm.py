@@ -1,11 +1,11 @@
-# %%
-import matplotlib.pyplot as plt
+"""Implement the conditinal gaussian mixture model.
+"""
 import numpy as np
 from scipy.stats import multivariate_normal
 from sklearn.mixture import GaussianMixture
 
 # from .. import utils
-from base_cde import BaseCDE
+from . import base_cde
 import progressbar
 
 
@@ -40,7 +40,7 @@ class SelfGMM():
         sample_ls = np.zeros((n_sample, self.n_feature))
         for i in range(n_sample):
             which_component = np.random.choice(
-                self.n_component, p=self.weight_ls)
+                self.n_component, p=self.weight)
             one_training_sample = np.random.multivariate_normal(
                 mean=self.mean[which_component, :], cov=self.cov[which_component, :, :])
             sample_ls[i, :] = one_training_sample
@@ -64,15 +64,15 @@ class SelfGMM():
         return pdf_val
 
 
-class CGMM(BaseCDE):
+class CGMM(base_cde.BaseCDE):
     """Conditional density estimation using GMM.
     """
 
     def __init__(self, condition, dependent, n_components):
-        self.condition = self._handle_shape(condition)
-        self.dependent = self._handle_shape(dependent)
+        self.condition = condition
+        self.dependent = dependent
         self.n_components = n_components
-        self.joint = np.stack([condition, dependent], axis=1)
+        self.joint = np.hstack([condition, dependent])
         self.gmm_joint = GaussianMixture(
             n_components=n_components, random_state=0).fit(self.joint)
 
@@ -170,6 +170,15 @@ class CGMM(BaseCDE):
         return cond_gm_ls
 
     def joint_pdf(self, new_condition, new_dependent):
+        """Use the fitted GMM, get the joint pdf value at new_condition and new_dependent.
+
+        Args:
+            new_condition ([type]): [description]
+            new_dependent ([type]): [description]
+
+        Returns:
+            [type]: [description]
+        """
         new_condition = self._handle_shape(new_condition)
         new_dependent = self._handle_shape(new_dependent)
         joint_samples = np.hstack([new_condition, new_dependent])
@@ -201,10 +210,10 @@ class CGMM(BaseCDE):
         Args:
             new_condition ([type]): [description]
         """
-        new_condition = self._handle_shape(new_condition)
+        new_condition = np.expand_dims(new_condition, axis=0)
         cond_gmm = self.get_cond_gm(
             self.gmm_joint, new_condition=new_condition)
-        return cond_gmm.sample(n_sample)
+        return cond_gmm[0].sample(n_sample)
 
 
 if __name__ == '__main__':
@@ -254,5 +263,3 @@ if __name__ == '__main__':
     for i in range(len(x)):
         ratio = z_joint[:, i] / z_cond[:, i]
         assert np.isclose(ratio.min(), ratio.max())
-
-# %%

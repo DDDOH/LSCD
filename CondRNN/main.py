@@ -22,7 +22,7 @@ Dataset
     other dataset       [ ]
 Baseline
     KDE                 [ ]
-    GMM                 [ ]
+    GMM                 [o]
 ML model
     RNN             
     NoisyReinforcedMLP
@@ -48,7 +48,7 @@ COND_LEN = 10
 N_SAMPLE = 2000
 
 DATA_NAME = 'PGnorta'  # 'PGnorta' or 'multivariate_normal'
-MODEL_NAME = 'BaselineGMM'  # 'CondLSTM' or 'CondMLP' or 'BaselineGMM
+MODEL_NAME = 'BaselineKDE'  # 'CondLSTM' or 'CondMLP' or 'BaselineGMM
 if DATA_NAME == 'multivariate_normal':
     SEQ_LEN = 50
     data = dataset.multivariate_normal.MultivariateNormal(seq_len=SEQ_LEN)
@@ -115,20 +115,24 @@ dependents = training_set[:, COND_LEN:, :]
 
 # baseline methods
 if MODEL_NAME == 'BaselineGMM':
-    X_q = conditions.squeeze(-1)[0, :]
-    from sklearn.mixture import GaussianMixture
-    gmm_joint = GaussianMixture(n_components=10, random_state=0).fit(
-        training_set.squeeze(-1))
-    gmm_cond = models.gmm.get_cond_gm(
-        gmm_joint, x_q=X_q)
-
-    gmm_cond_samples, _ = gmm_cond.sample(n_samples=1000)
-    real_cond_samples = data.sample_cond(X_1q=X_q, n_sample=200)
-
+    cgmm = models.gmm.CGMM(condition=conditions.squeeze(-1),
+                           dependent=dependents.squeeze(-1), n_components=5)
+    test_condition = conditions[0, :, 0]
+    gmm_cond_samples = cgmm.cond_samples(
+        new_condition=test_condition, n_sample=1000)
+    real_cond_samples = data.sample_cond(X_1q=test_condition, n_sample=200)
     metric.classical.evaluate(
         real_cond_samples=real_cond_samples, fake_cond_samples=gmm_cond_samples, dir_filename='test_gmm.jpg')
 
 if MODEL_NAME == 'BaselineKDE':
+    ckde = models.kde.CKDE(condition=conditions.squeeze(-1),
+                           dependent=dependents.squeeze(-1))
+    test_condition = conditions[0, :, 0]
+    kde_cond_samples = ckde.cond_samples(
+        new_condition=test_condition, n_sample=1000)
+    real_cond_samples = data.sample_cond(X_1q=test_condition, n_sample=200)
+    metric.classical.evaluate(
+        real_cond_samples=real_cond_samples, fake_cond_samples=kde_cond_samples, dir_filename='test_kde.jpg')
 
     # TODO: Poisson count simulator layer
 

@@ -134,7 +134,7 @@ if MODEL_NAME == 'BaselineKDE':
     metric.classical.evaluate(
         real_cond_samples=real_cond_samples, fake_cond_samples=kde_cond_samples, dir_filename='test_kde.jpg')
 
-    # TODO: Poisson count simulator layer
+# TODO: Poisson count simulator layer
 
 
 def train_iter(model, loss_func, lr=0.0002, epochs=1000):

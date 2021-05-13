@@ -9,6 +9,7 @@ Reference:
 """
 import numpy as np
 from scipy.stats import gaussian_kde
+
 from . import base_cde
 # TODO sample from estimated conditional distribution
 
@@ -21,7 +22,6 @@ class CKDE(base_cde.BaseCDE):
         self.condition = condition
         self.dependent = dependent
         self.joint = np.hstack([self.condition, self.dependent])
-
         self.kernel_joint = gaussian_kde(
             dataset=self.joint.T, bw_method=None, weights=None)
         self.kernel_condition = gaussian_kde(

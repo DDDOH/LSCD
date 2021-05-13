@@ -1,3 +1,4 @@
+
 """Implement the conditinal gaussian mixture model.
 """
 import numpy as np

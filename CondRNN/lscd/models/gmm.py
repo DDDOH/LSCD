@@ -205,12 +205,14 @@ class CGMM(base_cde.BaseCDE):
             pdf_val_ls[i] = cond_gmm_ls[i].pdf(new_dependent[i, :])
         return pdf_val_ls
 
-    def cond_samples(self, new_condition, n_sample):
+    def cond_samples(self, new_condition, n_sample, verbose=False):
         """Sample from the fitted conditional distribution.
 
         Args:
             new_condition ([type]): [description]
         """
+        if verbose:
+            print('CGMM: Conditionally sample from the fitted GMM.')
         new_condition = np.expand_dims(new_condition, axis=0)
         cond_gmm = self.get_cond_gm(
             self.gmm_joint, new_condition=new_condition)

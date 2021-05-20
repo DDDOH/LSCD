@@ -71,7 +71,7 @@ class PGnorta():
         return count
 
     # conditional sample
-    def sample_cond(self, X_1q, n_sample):
+    def sample_cond(self, X_1q, n_sample, verbose=False):
         """Sample the arrival count in the last q - p time steps given the arrival 
         count in the first q time steps.
 
@@ -95,6 +95,8 @@ class PGnorta():
 
         Args:
             X_1q (np.array): A list contains the arrival count in the first q time steps.
+            n_sample ():
+            verbose (bool): Whether print what is doing.
         """
         q = len(X_1q)
         assert q < self.p, 'q must smaller than p'
@@ -140,6 +142,8 @@ class PGnorta():
         n_candidate = 0
         batch_size = n_sample * 50  # how many samples in one while iteration.
         accepted_Z_q = np.zeros((n_sample, q))
+        if verbose:
+            print('PGnorta: Conditionally sample from the PGnorta model.')
         with progressbar.ProgressBar(max_value=n_sample) as bar:
             while n_accepted < n_sample:
                 n_candidate += batch_size

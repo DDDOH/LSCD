@@ -1,4 +1,5 @@
-//#include <Python/Python.h>
+// the C file that intent to communicate with python directly
+// can be compiled and run by 'run_C.py'
 #define PY_SSIZE_T_CLEAN  /* Make "s#" use Py_ssize_t rather than int. */
 #define MAX_N_SERVER 1000
 #define MAX_N_CUSTOMER 50000
@@ -251,6 +252,8 @@ single_server(PyObject *self, PyObject *args)
     int sts;
 
 // to accpet list, see https://www.oreilly.com/library/view/python-cookbook/0596001673/ch16s03.html
+// https://stuff.mit.edu/afs/sipb/project/python/src/python-numeric-22.0/doc/www.pfdubois.com/numpy/html2/numpy-13.html
+
     if (!PyArg_ParseTuple(args, "[i][i][i]i", arrival_time_ls, service_time_ls, wait_time_ls, n_customer))
         return NULL;
     single_server_queue(arrival_time_ls, service_time_ls, wait_time_ls, n_customer);

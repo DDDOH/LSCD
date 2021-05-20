@@ -8,6 +8,7 @@ import torch
 from torch.utils.tensorboard import SummaryWriter
 
 
+# TODO add verbose argument to print what is doing to the process need a progreeebar wrapper
 from lscd import utils
 from lscd import dataset
 from lscd import models
@@ -39,16 +40,13 @@ Others
 """
 # See how python import self defined modules: https://realpython.com/python-import/
 
-# TODO Add KDE for comparision.
-# TODO Finalize visulization code.
-# TODO Make MLP present acceptable results.
 
 # Get synthetic training set.
 COND_LEN = 10
 N_SAMPLE = 2000
 
 DATA_NAME = 'PGnorta'  # 'PGnorta' or 'multivariate_normal'
-MODEL_NAME = 'BaselineKDE'  # 'CondLSTM' or 'CondMLP' or 'BaselineGMM
+MODEL_NAME = 'BaselineGMM'  # 'CondLSTM' or 'CondMLP' or 'BaselineGMM
 if DATA_NAME == 'multivariate_normal':
     SEQ_LEN = 50
     data = dataset.multivariate_normal.MultivariateNormal(seq_len=SEQ_LEN)
@@ -103,8 +101,8 @@ class Scaler():
         return data * self.std + self.mean
 
 
-scale = False
-if scale:
+SCALE = False
+if SCALE:
     scaler = Scaler(training_set)
     ori_training_set = training_set
     training_set = scaler.transform()
@@ -119,8 +117,9 @@ if MODEL_NAME == 'BaselineGMM':
                            dependent=dependents.squeeze(-1), n_components=5)
     test_condition = conditions[0, :, 0]
     gmm_cond_samples = cgmm.cond_samples(
-        new_condition=test_condition, n_sample=1000)
-    real_cond_samples = data.sample_cond(X_1q=test_condition, n_sample=200)
+        new_condition=test_condition, n_sample=1000, verbose=True)
+    real_cond_samples = data.sample_cond(
+        X_1q=test_condition, n_sample=200, verbose=True)
     metric.classical.evaluate(
         real_cond_samples=real_cond_samples, fake_cond_samples=gmm_cond_samples, dir_filename='test_gmm.jpg')
 

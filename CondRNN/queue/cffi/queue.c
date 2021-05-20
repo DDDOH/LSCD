@@ -1,21 +1,64 @@
-# file "example_build.py"
+#define MAX_N_SERVER 1000
 
-from cffi import FFI
-ffibuilder = FFI()
 
-ffibuilder.cdef("""void single_server_queue(float arrival_time_ls[], float service_time_ls[], float wait_time_ls[], int n_customer);
+void single_server_queue(float arrival_time_ls[], float service_time_ls[], float wait_time_ls[], int n_customer);
 void const_multi_server_queue(float arrival_time_ls[], float service_time_ls[], float wait_time_ls[],
                               int n_server, int n_customer);
 void changing_multi_server_queue(float arrival_time_ls[], float service_time_ls[], float wait_time_ls[],
-                                 int n_server_ls[], float duration_ls[], int n_customer, int n_period);""")
-
-ffibuilder.set_source("CondRNN.test_read_C_h._queue",
-                      r"""
-    #define MAX_N_SERVER 1000
-    int allocate_server(float busy_till_time_ls[], int n_server_ls[], int n_period,
+                                 int n_server_ls[], float duration_ls[], int n_customer, int n_period);
+int allocate_server(float busy_till_time_ls[], int n_server_ls[], int n_period,
                     float cum_duration_ls[], int max_n_server);
-                    
-    void single_server_queue(float arrival_time_ls[], float service_time_ls[], float wait_time_ls[], int n_customer) {
+
+// void test() {
+//     // for single server queue
+//     float arrival_time_ls_1[] = {15, 47, 71, 111, 123, 152, 166, 226, 310, 320};
+//     float service_time_ls_1[] = {43, 36, 34, 30, 38, 40, 31, 29, 36, 30};
+//     int n_customer = sizeof (arrival_time_ls_1) / sizeof (arrival_time_ls_1[0]);
+
+
+//     // for multi server queue with constant number of servers
+//     float arrival_time_ls_2[] = {15, 47, 71, 111, 123, 152, 166, 226, 310, 320};
+//     float service_time_ls_2[10] = {};
+//     for (int i = 0; i < n_customer; ++i){
+//         service_time_ls_2[i] = service_time_ls_1[i] * 5;
+//     }
+//     int n_server = 4;
+
+//     // for multi server queue with changing number of servers
+//     float arrival_time_ls_3[] = {15, 47, 71, 111, 123, 152, 166, 226, 310, 320};
+//     float service_time_ls_3[10] = {};
+//     for (int i = 0; i < n_customer; ++i){
+//         service_time_ls_3[i] = service_time_ls_1[i] * 5;
+//     }
+//     int n_server_ls[] = {4,4,4,4};
+//     float duration_ls[] = {50, 50, 100, 50};
+//     int n_period = 4;
+
+//     /* single server queue */
+//     float wait_time_ls_1[n_customer];
+//     single_server_queue(arrival_time_ls_1, service_time_ls_1, wait_time_ls_1, n_customer);
+//     printf("results for single server queue\n");
+//     for (int i = 0; i < n_customer; i = i + 1)printf("%f\n", wait_time_ls_1[i]);
+//     printf("**********\n");
+
+//     /* constant multi server queue */
+//     float wait_time_ls_2[n_customer];
+//     const_multi_server_queue(arrival_time_ls_2, service_time_ls_2, wait_time_ls_2, n_server, n_customer);
+//     printf("results for constant multi server queue\n");
+//     for (int i = 0; i < n_customer; i = i + 1)printf("%f\n", wait_time_ls_2[i]);
+//     printf("**********\n");
+
+//     /* changing multi server queue */
+//     float wait_time_ls_3[n_customer];
+//     changing_multi_server_queue(arrival_time_ls_3, service_time_ls_3, wait_time_ls_3, n_server_ls, duration_ls,
+//                                 n_customer, n_period);
+//     printf("results for changing multi server queue\n");
+//     for (int i = 0; i < n_customer; i = i + 1)printf("%f\n", wait_time_ls_3[i]);
+//     printf("**********\n");
+// }
+
+
+void single_server_queue(float arrival_time_ls[], float service_time_ls[], float wait_time_ls[], int n_customer) {
     /* Reference: http://www.cs.wm.edu/~esmirni/Teaching/cs526/section1.2.pdf */
     float c_i_minus_1 = 0;
     float d_i;
@@ -43,8 +86,6 @@ int index_min(float list[], int length) {
     }
     return index;
 }
-
-
 
 void const_multi_server_queue(float arrival_time_ls[], float service_time_ls[], float wait_time_ls[],
                               int n_server, int n_customer){
@@ -85,7 +126,7 @@ int max(int list[], int length){
 
 
 void changing_multi_server_queue(float arrival_time_ls[], float service_time_ls[], float wait_time_ls[],
-                              int n_server_ls[], float duration_ls[], int n_customer, int n_period){
+                                 int n_server_ls[], float duration_ls[], int n_customer, int n_period){
     float busy_till_time_ls[MAX_N_SERVER] = {};
     float cum_duration_ls[n_period];
     cumsum(duration_ls, n_period, cum_duration_ls);
@@ -164,8 +205,8 @@ int allocate_server(float busy_till_time_ls[], int n_server_ls[], int n_period,
         //         change busy_till_time_ls[server_id] to this value
         if (server_accessible == 0) {
             int earliest_accessible_period = earliest_accessible_period_after(first_idle_period_id, server_id,
-                                                                            n_server_ls,
-                                                                            n_period);
+                                                                              n_server_ls,
+                                                                              n_period);
 
             if (earliest_accessible_period != n_period) {
                 busy_till_time_ls[server_id] = cum_duration_ls[earliest_accessible_period];
@@ -184,8 +225,3 @@ int allocate_server(float busy_till_time_ls[], int n_server_ls[], int n_period,
         return allocated_server_id;
     }
 }
-
-""")
-
-if __name__ == "__main__":
-    ffibuilder.compile(verbose=True)

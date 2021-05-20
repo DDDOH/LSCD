@@ -8,20 +8,49 @@
    the same works for the other two macros.  Py_DEBUG implies them,
    but not the other way around.
 
-   Issue #350 is still open: on Windows, the code here causes it to link
-   with PYTHON36.DLL (for example) instead of PYTHON3.DLL.  A fix was
-   attempted in 164e526a5515 and 14ce6985e1c3, but reverted: virtualenv
-   does not make PYTHON3.DLL available, and so the "correctly" compiled
-   version would not run inside a virtualenv.  We will re-apply the fix
-   after virtualenv has been fixed for some time.  For explanation, see
-   issue #355.  For a workaround if you want PYTHON3.DLL and don't worry
-   about virtualenv, see issue #350.  See also 'py_limited_api' in
-   setuptools_ext.py.
+   The implementation is messy (issue #350): on Windows, with _MSC_VER,
+   we have to define Py_LIMITED_API even before including pyconfig.h.
+   In that case, we guess what pyconfig.h will do to the macros above,
+   and check our guess after the #include.
+
+   Note that on Windows, with CPython 3.x, you need >= 3.5 and virtualenv
+   version >= 16.0.0.  With older versions of either, you don't get a
+   copy of PYTHON3.DLL in the virtualenv.  We can't check the version of
+   CPython *before* we even include pyconfig.h.  ffi.set_source() puts
+   a ``#define _CFFI_NO_LIMITED_API'' at the start of this file if it is
+   running on Windows < 3.5, as an attempt at fixing it, but that's
+   arguably wrong because it may not be the target version of Python.
+   Still better than nothing I guess.  As another workaround, you can
+   remove the definition of Py_LIMITED_API here.
+
+   See also 'py_limited_api' in cffi/setuptools_ext.py.
 */
 #if !defined(_CFFI_USE_EMBEDDING) && !defined(Py_LIMITED_API)
-#  include <pyconfig.h>
-#  if !defined(Py_DEBUG) && !defined(Py_TRACE_REFS) && !defined(Py_REF_DEBUG)
-#    define Py_LIMITED_API
+#  ifdef _MSC_VER
+#    if !defined(_DEBUG) && !defined(Py_DEBUG) && !defined(Py_TRACE_REFS) && !defined(Py_REF_DEBUG) && !defined(_CFFI_NO_LIMITED_API)
+#      define Py_LIMITED_API
+#    endif
+#    include <pyconfig.h>
+     /* sanity-check: Py_LIMITED_API will cause crashes if any of these
+        are also defined.  Normally, the Python file PC/pyconfig.h does not
+        cause any of these to be defined, with the exception that _DEBUG
+        causes Py_DEBUG.  Double-check that. */
+#    ifdef Py_LIMITED_API
+#      if defined(Py_DEBUG)
+#        error "pyconfig.h unexpectedly defines Py_DEBUG, but Py_LIMITED_API is set"
+#      endif
+#      if defined(Py_TRACE_REFS)
+#        error "pyconfig.h unexpectedly defines Py_TRACE_REFS, but Py_LIMITED_API is set"
+#      endif
+#      if defined(Py_REF_DEBUG)
+#        error "pyconfig.h unexpectedly defines Py_REF_DEBUG, but Py_LIMITED_API is set"
+#      endif
+#    endif
+#  else
+#    include <pyconfig.h>
+#    if !defined(Py_DEBUG) && !defined(Py_TRACE_REFS) && !defined(Py_REF_DEBUG) && !defined(_CFFI_NO_LIMITED_API)
+#      define Py_LIMITED_API
+#    endif
 #  endif
 #endif
 
@@ -537,182 +566,7 @@ static void (*_cffi_call_python_org)(struct _cffi_externpy_s *, char *);
 
 /************************************************************/
 
-
-    #define MAX_N_SERVER 1000
-    int allocate_server(float busy_till_time_ls[], int n_server_ls[], int n_period,
-                    float cum_duration_ls[], int max_n_server);
-                    
-    void single_server_queue(float arrival_time_ls[], float service_time_ls[], float wait_time_ls[], int n_customer) {
-    /* Reference: http://www.cs.wm.edu/~esmirni/Teaching/cs526/section1.2.pdf */
-    float c_i_minus_1 = 0;
-    float d_i;
-    for ( int i = 0; i < n_customer; i = i + 1 ){
-        float a_i = arrival_time_ls[i];
-        if (a_i < c_i_minus_1){
-            d_i = c_i_minus_1 - a_i;
-        }else{
-            d_i = 0;
-        }
-        wait_time_ls[i] = d_i;
-        c_i_minus_1 = a_i + d_i + service_time_ls[i];
-    }
-}
-
-int index_min(float list[], int length) {
-    /* find the smallest value in list */
-    float min_val_found = list[0];
-    int index = 0;
-    for (int i = 0; i < length; i++) {
-        if (min_val_found > list[i]) {
-            min_val_found = list[i];
-            index = i;
-        }
-    }
-    return index;
-}
-
-
-
-void const_multi_server_queue(float arrival_time_ls[], float service_time_ls[], float wait_time_ls[],
-                              int n_server, int n_customer){
-    float busy_till_time_ls[MAX_N_SERVER] = {};
-    for(int customer_id=0; customer_id < n_customer; ++customer_id){
-        float current_arrival_time = arrival_time_ls[customer_id];
-        // allocate one server
-        int server_id = index_min(busy_till_time_ls, n_server);
-        float earliest_start_time = busy_till_time_ls[server_id];
-        if (earliest_start_time < current_arrival_time){
-            wait_time_ls[customer_id] = 0;
-            busy_till_time_ls[server_id] = current_arrival_time + service_time_ls[customer_id];
-        } else {
-            wait_time_ls[customer_id] = earliest_start_time - current_arrival_time;
-            busy_till_time_ls[server_id] += service_time_ls[customer_id];
-        }
-    }
-}
-
-void cumsum(float list[], int length, float result[]){
-    float cumsum_val = 0;
-    for (int i = 0; i < length; ++i){
-        cumsum_val += list[i];
-        result[i] = cumsum_val;
-    }
-}
-
-int max(int list[], int length){
-    int largest_val = 0;
-    for (int i = 0; i < length; ++i){
-        if (list[i] > largest_val){
-            largest_val = list[i];
-        }
-
-    }
-    return largest_val;
-}
-
-
-void changing_multi_server_queue(float arrival_time_ls[], float service_time_ls[], float wait_time_ls[],
-                              int n_server_ls[], float duration_ls[], int n_customer, int n_period){
-    float busy_till_time_ls[MAX_N_SERVER] = {};
-    float cum_duration_ls[n_period];
-    cumsum(duration_ls, n_period, cum_duration_ls);
-    int max_n_server = max(n_server_ls, n_period);
-    for(int customer_id=0; customer_id < n_customer; ++customer_id){
-        float current_arrival_time = arrival_time_ls[customer_id];
-        // allocate one server
-
-        int server_id = allocate_server(busy_till_time_ls, n_server_ls, n_period, cum_duration_ls,
-                                        max_n_server);
-        if (server_id == -1){
-            wait_time_ls[customer_id] = -1;
-        } else{
-            float earliest_start_time = busy_till_time_ls[server_id];
-            if (earliest_start_time < current_arrival_time){
-                wait_time_ls[customer_id] = 0;
-                busy_till_time_ls[server_id] = current_arrival_time + service_time_ls[customer_id];
-            } else {
-                wait_time_ls[customer_id] = earliest_start_time - current_arrival_time;
-                busy_till_time_ls[server_id] += service_time_ls[customer_id];
-            }
-        }
-    }
-}
-
-
-int which_period(float current_time, float cum_duration_ls[], int n_period){
-
-    int period_id;
-    for (period_id = 0; period_id < n_period; ++period_id){
-        float period_end_time = cum_duration_ls[period_id];
-        if (period_end_time > current_time){
-            return period_id;
-        }
-    }
-    // return period_id = n_period if current_time does not belong to any period
-    return period_id;
-}
-
-int earliest_accessible_period_after(int first_idle_period_id, int server_id, int n_server_ls[], int n_period){
-    int earliest_accessible_period;
-    for (earliest_accessible_period = first_idle_period_id; earliest_accessible_period < n_period; ++earliest_accessible_period){
-        if (n_server_ls[earliest_accessible_period] > server_id){
-            return earliest_accessible_period;
-        }
-    }
-    return earliest_accessible_period;
-}
-
-
-int allocate_server(float busy_till_time_ls[], int n_server_ls[], int n_period,
-                    float cum_duration_ls[], int max_n_server) {
-    float total_duration = cum_duration_ls[n_period - 1];
-    for (int server_id = 0; server_id < max_n_server; server_id++) {
-        // check whether this server is accessible at time busy_till_time_ls[server_id]
-        int first_idle_period_id;
-        int server_accessible;
-        if (busy_till_time_ls[server_id] >= total_duration) {
-            // this server is not accessible forever, thus turn to the next server
-            continue;
-        } else {
-            first_idle_period_id = which_period(busy_till_time_ls[server_id], cum_duration_ls, n_period);
-            int current_n_server;
-            if (first_idle_period_id != n_period) {
-                current_n_server = n_server_ls[first_idle_period_id];
-            } else {
-                // when first_idle_period_id == n_period, the busy_till_time_ls[server_id] is larger than total_duration
-                // thus no server is available
-                current_n_server = 0;
-            }
-            server_accessible = (current_n_server > server_id);
-        }
-
-        // if yes, nothing need to do
-        // if not, find the earliest time that this server becomes accessible,
-        //         change busy_till_time_ls[server_id] to this value
-        if (server_accessible == 0) {
-            int earliest_accessible_period = earliest_accessible_period_after(first_idle_period_id, server_id,
-                                                                            n_server_ls,
-                                                                            n_period);
-
-            if (earliest_accessible_period != n_period) {
-                busy_till_time_ls[server_id] = cum_duration_ls[earliest_accessible_period];
-            } else {
-                // when earliest_accessible_period ==  n_period, this server is not accessible till the end.
-                // set busy_till_time_ls[server_id] to total_duration
-                busy_till_time_ls[server_id] = total_duration;
-            }
-        }
-    }
-    int allocated_server_id = index_min(busy_till_time_ls, max_n_server);
-    int allocated_server_idle_time = busy_till_time_ls[allocated_server_id];
-    if (allocated_server_idle_time >= total_duration) {
-        return -1; // return -1 for no server available anymore
-    } else {
-        return allocated_server_id;
-    }
-}
-
-
+#include "queue.h" 
 
 /************************************************************/
 
@@ -1009,7 +863,7 @@ static const struct _cffi_type_context_s _cffi_type_context = {
 
 #ifdef PYPY_VERSION
 PyMODINIT_FUNC
-_cffi_pypyinit__queue(const void *p[])
+_cffi_pypyinit_queue_cffi(const void *p[])
 {
     p[0] = (const void *)0x2601;
     p[1] = &_cffi_type_context;
@@ -1020,22 +874,22 @@ _cffi_pypyinit__queue(const void *p[])
 #  ifdef _MSC_VER
      PyMODINIT_FUNC
 #  if PY_MAJOR_VERSION >= 3
-     PyInit__queue(void) { return NULL; }
+     PyInit_queue_cffi(void) { return NULL; }
 #  else
-     init_queue(void) { }
+     initqueue_cffi(void) { }
 #  endif
 #  endif
 #elif PY_MAJOR_VERSION >= 3
 PyMODINIT_FUNC
-PyInit__queue(void)
+PyInit_queue_cffi(void)
 {
-  return _cffi_init("CondRNN.test_read_C_h._queue", 0x2601, &_cffi_type_context);
+  return _cffi_init("queue_cffi", 0x2601, &_cffi_type_context);
 }
 #else
 PyMODINIT_FUNC
-init_queue(void)
+initqueue_cffi(void)
 {
-  _cffi_init("CondRNN.test_read_C_h._queue", 0x2601, &_cffi_type_context);
+  _cffi_init("queue_cffi", 0x2601, &_cffi_type_context);
 }
 #endif
 

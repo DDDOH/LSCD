@@ -9,12 +9,12 @@ from torch.utils.tensorboard import SummaryWriter
 from geomloss import SamplesLoss
 import progressbar
 
-
 # TODO add verbose argument to print what is doing to the process need a progreeebar wrapper
 from lscd import utils
 from lscd import dataset
 from lscd import models
 from lscd import metric
+from lscd import utils
 
 # TODO
 """
@@ -68,45 +68,11 @@ if not os.path.exists(result_time_dir):
     os.mkdir(result_time_dir)
 writer = SummaryWriter(result_time_dir)
 
+
 # pre processing
-
-
-class Scaler():
-    def __init__(self, data):
-        """Initialize the Scaler class.
-
-        Args:
-            data (np.array): 2d numpy array. Each row represents one sequence.
-                             Each column is one timestep.
-                             Only works for sequence with one feature each time step, temporarily.
-        """
-        self.data = data
-        self.mean = np.mean(data, axis=0)
-        self.std = np.std(data, axis=0)
-
-    def transform(self, data=None):
-        """Transform data to standard normal distribution.
-
-        Transform data for each time stamp to an individual standard normal distribution.
-
-        Args:
-            data (np.array, optional): If not specified, default to the dataset used to initialize this Scaler.
-                                       Defaults to None.
-
-        Returns:
-            np.array: The transformed data.
-        """
-        if not data:
-            data = self.data
-        return (data - self.mean) / self.std
-
-    def inverse_transform(self, data):
-        return data * self.std + self.mean
-
-
 SCALE = False
 if SCALE:
-    scaler = Scaler(training_set)
+    scaler = utils.data_sturcture.Scaler(training_set)
     ori_training_set = training_set
     training_set = scaler.transform()
 
@@ -136,6 +102,7 @@ if MODEL_NAME == 'BaselineKDE':
     real_cond_samples = data.sample_cond(X_1q=test_condition, n_sample=200)
     metric.classical.evaluate(
         real_cond_samples=real_cond_samples, fake_cond_samples=kde_cond_samples, dir_filename='test_kde.jpg')
+
 
 # TODO: Poisson count simulator layer
 
@@ -238,12 +205,11 @@ if MODEL_NAME == 'CondLSTM':
     model_instance = models.rnn.CondLSTM(
         in_feature=in_feature, out_feature=out_feature)
 if MODEL_NAME == 'CondMLP':
-    model_instance = models.mlp.CondMLP(seed_dim=seq_len-COND_LEN,
+    model_instance = models.mlp.CondMLP(seed_dim=seq_len - COND_LEN,
                                         cond_len=COND_LEN, seq_len=seq_len, hidden_dim=256)
 if MODEL_NAME == 'CondNoiseMLP':
     model_instance = models.noise_mlp.CondNoiseMLP(
         cond_len=COND_LEN, seq_len=seq_len, hidden_dim=64)
-
 
 # ********** Training to minimize MSE ********** #
 # loss_func = loss = nn.MSELoss()
@@ -270,6 +236,18 @@ sinkorn_loss = SamplesLoss("sinkhorn", p=2, blur=0.05, scaling=0.5)
 
 
 def train_iter(model_instance, loss_func, lr, epochs):
+    # make comparision on several conditions
+    n_condition_to_compare = 5
+    conditions_to_compare = conditions.squeeze(
+        -1)[:n_condition_to_compare, :]
+    cond_dep = utils.data_structure.CondDep()
+
+    for i in range(n_condition_to_compare):
+        real_dep = data.sample_cond(X_1q=conditions_to_compare[i, :],
+                                    n_sample=50, verbose=True)
+        cond_dep.add_cond_dep_pair(
+            condition=conditions[i, :], dependent=real_dep)
+
     optimizer = torch.optim.Adam(model_instance.parameters(), lr)
     for i in progressbar.progressbar(range(epochs), redirect_stdout=True):
         model_instance.zero_grad()
@@ -281,9 +259,15 @@ def train_iter(model_instance, loss_func, lr, epochs):
         # loss_curve.append(loss.detach())
         optimizer.step()
 
+        # evaluate
         if i % 10 == 0:
+            # joint distribution
             metric.classical.evaluate(real_cond_samples=fake_x,
-                                      fake_cond_samples=training_set.squeeze(-1), dir_filename='NoiseMLP{}.jpg'.format(i))
+                                      fake_cond_samples=training_set.squeeze(
+                                          -1),
+                                      dir_filename='CondRNN/results/NoiseMLP{}.jpg'.format(i))
+            # conditional distribution
+            # TODO add evaluate for multiple conditions
 
 
 def sinkhorn_dist(generated, target):
@@ -291,5 +275,5 @@ def sinkhorn_dist(generated, target):
 
 
 loss_func = nn.MSELoss()
-train_iter(model_instance, loss_func=sinkhorn_dist, lr=0.005, epochs=300)
+train_iter(model_instance, loss_func=loss_func, lr=0.005, epochs=300)
 # ********** Training to minimize sinkhorn distance ********** #

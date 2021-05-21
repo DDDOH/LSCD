@@ -263,6 +263,7 @@ def evaluate(real_cond_samples, fake_cond_samples, dir_filename):
     w_distance_plot(real_cond_samples, fake_cond_samples, axs[3])
     # run_through_queue_plot(real_cond_samples, fake_cond_samples, axs[4])
     fig.savefig(dir_filename)
+    plt.close(fig)
 
 
 if __name__ == '__main__':

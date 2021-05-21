@@ -252,9 +252,9 @@ def evaluate(real_cond_samples, fake_cond_samples, dir_filename):
         dir_filename (string): The location to save the figure. Should include both the directory path and the file name, e.g., 'results/figure.jpg'.
     """
     if isinstance(real_cond_samples, torch.Tensor):
-        real_cond_samples = real_cond_samples.numpy()
+        real_cond_samples = real_cond_samples.detach().numpy()
     if isinstance(fake_cond_samples, torch.Tensor):
-        fake_cond_samples = fake_cond_samples.numpy()
+        fake_cond_samples = fake_cond_samples.detach().numpy()
     assert np.shape(real_cond_samples)[1] == np.shape(fake_cond_samples)[1]
     fig, axs = plt.subplots(1, 4, figsize=(15, 3))
     marginal_mean_plot(real_cond_samples, fake_cond_samples, axs[0])

@@ -3,9 +3,11 @@ import os
 import datetime
 import numpy as np
 import matplotlib.pyplot as plt
-# from geomloss import SamplesLoss
 import torch
+import torch.nn as nn
 from torch.utils.tensorboard import SummaryWriter
+from geomloss import SamplesLoss
+import progressbar
 
 
 # TODO add verbose argument to print what is doing to the process need a progreeebar wrapper
@@ -29,8 +31,8 @@ ML model
     NoisyReinforcedMLP
     MLP
 Evaluation metric
-    Run through queue
-    pairwise plot
+    Run through queue                   [ ]
+    pairwise plot                       [ ]
     marginal mean                       [o]
     marginal variance                   [o]
     Pierre correlation                  [o]
@@ -43,10 +45,11 @@ Others
 
 # Get synthetic training set.
 COND_LEN = 10
-N_SAMPLE = 2000
+N_SAMPLE = 300
 
 DATA_NAME = 'PGnorta'  # 'PGnorta' or 'multivariate_normal'
-MODEL_NAME = 'BaselineGMM'  # 'CondLSTM' or 'CondMLP' or 'BaselineGMM
+# 'CondLSTM' or 'CondMLP' or 'BaselineGMM' or 'CondNoiseMLP'
+MODEL_NAME = 'CondNoiseMLP'
 if DATA_NAME == 'multivariate_normal':
     SEQ_LEN = 50
     data = dataset.multivariate_normal.MultivariateNormal(seq_len=SEQ_LEN)
@@ -137,8 +140,10 @@ if MODEL_NAME == 'BaselineKDE':
 # TODO: Poisson count simulator layer
 
 
-def train_iter(model, loss_func, lr=0.0002, epochs=1000):
-    """Train the model with given loss.
+def train_iter_old(model, loss_func, lr=0.0002, epochs=1000):
+    """Train the model with given loss. Deprecated.
+    But may contains some code for CondRNN and CondLSTM. So just put it here till updating CondRNN and CondLSTM.
+
 
     Args:
         model ([type]): [description]
@@ -149,20 +154,20 @@ def train_iter(model, loss_func, lr=0.0002, epochs=1000):
         model (torch.Tensor): Trained model.
     """
 
-    optimizer = torch.optim.Adam(predictor.parameters(), lr)
+    optimizer = torch.optim.Adam(model_instance.parameters(), lr)
 
     # loss_curve = []
-    if isinstance(model, models.model.CondLSTM):
+    if isinstance(model, models.rnn.CondLSTM):
         h_records = []
         c_records = []
         target = training_set[:, 1:]
-    if isinstance(model, models.model.CondMLP):
+    if isinstance(model, models.mlp.CondMLP):
         target = training_set[:, COND_LEN:]
 
     for i in range(epochs):
-        predictor.zero_grad()
-        pred_value = models.model.predict_MLP(predictor, training_set)
-        # TODO pred_value = predict_full_RNN(training_set, predictor)
+        model_instance.zero_grad()
+        pred_value = models.mlp.predict_MLP(model_instance, training_set)
+        # TODO pred_value = predict_full_RNN(training_set, model_instance)
         loss = loss_func(pred_value, target)
         loss.backward()
         print('[%d/%d] Loss: %.4f' % (i, epochs, loss.item()))
@@ -170,8 +175,8 @@ def train_iter(model, loss_func, lr=0.0002, epochs=1000):
         optimizer.step()
 
         if model == 'CondLSTM':
-            h_records.append(predictor.h_0.clone().detach().squeeze())
-            c_records.append(predictor.c_0.clone().detach().squeeze())
+            h_records.append(model_instance.h_0.clone().detach().squeeze())
+            c_records.append(model_instance.c_0.clone().detach().squeeze())
 
         if i % 10 == 0:
             # Plot predicted value vs target value.
@@ -184,11 +189,11 @@ def train_iter(model, loss_func, lr=0.0002, epochs=1000):
             true_dependent = training_set[:, COND_LEN:]
 
             # TODO: modify old only LSTM code
-            # TODO pred_on_condition = predict_condition(condition, predictor)
+            # TODO pred_on_condition = predict_condition(condition, model_instance)
             # TODO plt.plot(pred_on_condition.squeeze(-1).detach().T,
             #  c='r', alpha=0.02)
-            fake_dependent = models.model.predict_MLP(
-                predictor, training_set).detach()
+            fake_dependent = models.mlp.predict_MLP(
+                model_instance, training_set).detach()
 
             plt.plot(fake_dependent.squeeze(-1).T, c='r', alpha=0.1)
             plt.plot(true_dependent.squeeze(-1).T, c='g', alpha=0.1)
@@ -196,7 +201,7 @@ def train_iter(model, loss_func, lr=0.0002, epochs=1000):
             plt.savefig(filename)
             plt.close()
 
-            if isinstance(model, models.model.CondLSTM):
+            if isinstance(model, models.rnn.CondLSTM):
                 plt.figure(figsize=(20, 5))
                 # plt.pcolormesh(np.stack(h_records, axis=0))
                 plt.subplot(121)
@@ -207,9 +212,9 @@ def train_iter(model, loss_func, lr=0.0002, epochs=1000):
                 plt.savefig(filename)
                 plt.close()
 
-            fake_statistic = utils.plot_mean_var_cov(
-                fake_dependent.squeeze(-1), dpi=45)
-            writer.add_image("fake", fake_statistic, i)
+            # fake_statistic = utils.plot_mean_var_cov(
+            #     fake_dependent.squeeze(-1), dpi=45)
+            # writer.add_image("fake", fake_statistic, i)
 
         writer.add_scalar('Loss curve',
                           loss.item(), i)
@@ -230,38 +235,61 @@ if MODEL_NAME == 'CondLSTM':
     out_feature = n_feature
     # since the number of data in training set is small, use the whole training set in each iteration, temporarily
     batch_size = N_SAMPLE
-    predictor = models.model.CondLSTM(
+    model_instance = models.rnn.CondLSTM(
         in_feature=in_feature, out_feature=out_feature)
 if MODEL_NAME == 'CondMLP':
-    predictor = models.model.CondMLP(seed_dim=seq_len-COND_LEN,
-                                     COND_LEN=COND_LEN, seq_len=seq_len, hidden_dim=256)
+    model_instance = models.mlp.CondMLP(seed_dim=seq_len-COND_LEN,
+                                        cond_len=COND_LEN, seq_len=seq_len, hidden_dim=256)
+if MODEL_NAME == 'CondNoiseMLP':
+    model_instance = models.noise_mlp.CondNoiseMLP(
+        cond_len=COND_LEN, seq_len=seq_len, hidden_dim=64)
 
 
-# summary(predictor, [(COND_LEN, n_feature), (COND_LEN, noise_dim), (2, 1, hidden_dim)])
-
-# train the model to minimize MSE
+# ********** Training to minimize MSE ********** #
 # loss_func = loss = nn.MSELoss()
-# train_iter(predictor, loss_func, lr=0.0005)
+# train_iter_old(model_instance, loss_func, lr=0.0005)
+# ********** Training to minimize MSE ********** #
 
-# %%
-# Training to minimize utils.w_distance seems quite unstable and fail to converge
+# ********** Training to minimize utils.w_distance ********** #
+#
+# seems quite unstable and fail to converge
 # even if pretraining to minimize MSE
 # reason unknown
 
-# train_iter(predictor, loss_func=nn.MSELoss(), lr=0.0005, epochs=300)
+# train_iter_old(model_instance, loss_func=nn.MSELoss(), lr=0.0005, epochs=300)
 
 # def weighted_dist(generated, target):
 #     return utils.w_distance(generated.squeeze(-1), target.squeeze(-1))
 
-# train_iter(predictor, loss_func=weighted_dist, lr=0.0005)
-
-# %%
-
-# sinkorn_loss = SamplesLoss("sinkhorn", p=2, blur=0.05, scaling=0.8)
+# train_iter_old(model_instance, loss_func=weighted_dist, lr=0.0005)
+# ********** Training to minimize utils.w_distance ********** #
 
 
-# def sinkhorn_dist(generated, target):
-#     return sinkorn_loss(generated.squeeze(-1), target.squeeze(-1))
+# ********** Training to minimize sinkhorn distance ********** #
+sinkorn_loss = SamplesLoss("sinkhorn", p=2, blur=0.05, scaling=0.5)
 
 
-# train_iter(predictor, loss_func=sinkhorn_dist, lr=0.005, epochs=300)
+def train_iter(model_instance, loss_func, lr, epochs):
+    optimizer = torch.optim.Adam(model_instance.parameters(), lr)
+    for i in progressbar.progressbar(range(epochs), redirect_stdout=True):
+        model_instance.zero_grad()
+        fake_x_qp = model_instance(conditions.squeeze(-1))
+        fake_x = torch.cat([conditions.squeeze(-1), fake_x_qp], dim=1)
+        loss = loss_func(training_set.squeeze(-1), fake_x)
+        loss.backward()
+        print('[%d/%d] Loss: %.4f' % (i, epochs, loss.item()))
+        # loss_curve.append(loss.detach())
+        optimizer.step()
+
+        if i % 10 == 0:
+            metric.classical.evaluate(real_cond_samples=fake_x,
+                                      fake_cond_samples=training_set.squeeze(-1), dir_filename='NoiseMLP{}.jpg'.format(i))
+
+
+def sinkhorn_dist(generated, target):
+    return sinkorn_loss(generated, target)
+
+
+loss_func = nn.MSELoss()
+train_iter(model_instance, loss_func=sinkhorn_dist, lr=0.005, epochs=300)
+# ********** Training to minimize sinkhorn distance ********** #

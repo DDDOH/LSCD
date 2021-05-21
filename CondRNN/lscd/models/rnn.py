@@ -1,10 +1,9 @@
 import torch.nn as nn
 import torch
 
-
-# TODO: divide into rnn.py and mlp.py in future
-
 # LSTM
+
+
 class CondLSTM(nn.Module):
     """Conditional LSTM"""
 

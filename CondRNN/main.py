@@ -90,8 +90,8 @@ if MODEL_NAME == 'BaselineGMM':
     gmm_cond_samples = np.round(gmm_cond_samples).astype(int)
     real_cond_samples = data.sample_cond(
         X_1q=test_condition, n_sample=200, verbose=True)
-    metric.classical.evaluate(
-        real_cond_samples=real_cond_samples, fake_cond_samples=gmm_cond_samples, dir_filename='test_gmm.jpg')
+    metric.classical.evaluate_joint(
+        real_samples=real_cond_samples, fake_samples=gmm_cond_samples, dir_filename='test_gmm.jpg')
 
 if MODEL_NAME == 'BaselineKDE':
     ckde = models.kde.CKDE(condition=conditions.squeeze(-1),
@@ -100,8 +100,8 @@ if MODEL_NAME == 'BaselineKDE':
     kde_cond_samples = ckde.cond_samples(
         new_condition=test_condition, n_sample=1000)
     real_cond_samples = data.sample_cond(X_1q=test_condition, n_sample=200)
-    metric.classical.evaluate(
-        real_cond_samples=real_cond_samples, fake_cond_samples=kde_cond_samples, dir_filename='test_kde.jpg')
+    metric.classical.evaluate_joint(
+        real_samples=real_cond_samples, fake_samples=kde_cond_samples, dir_filename='test_kde.jpg')
 
 
 # TODO: Poisson count simulator layer
@@ -240,12 +240,12 @@ def train_iter(model_instance, loss_func, lr, epochs):
     n_condition_to_compare = 5
     conditions_to_compare = conditions.squeeze(
         -1)[:n_condition_to_compare, :]
-    cond_dep = utils.data_structure.CondDep()
+    real_cond_dep = utils.data_structure.CondDep()
 
     for i in range(n_condition_to_compare):
         real_dep = data.sample_cond(X_1q=conditions_to_compare[i, :],
                                     n_sample=50, verbose=True)
-        cond_dep.add_cond_dep_pair(
+        real_cond_dep.add_cond_dep_pair(
             condition=conditions[i, :], dependent=real_dep)
 
     optimizer = torch.optim.Adam(model_instance.parameters(), lr)
@@ -259,15 +259,16 @@ def train_iter(model_instance, loss_func, lr, epochs):
         # loss_curve.append(loss.detach())
         optimizer.step()
 
-        # evaluate
+        # evaluate_joint
         if i % 10 == 0:
             # joint distribution
-            metric.classical.evaluate(real_cond_samples=fake_x,
-                                      fake_cond_samples=training_set.squeeze(
-                                          -1),
-                                      dir_filename='CondRNN/results/NoiseMLP{}.jpg'.format(i))
+            metric.classical.evaluate_joint(real_samples=training_set.squeeze(-1),
+                                            fake_samples=fake_x,
+                                            dir_filename='CondRNN/results/NoiseMLP{}.jpg'.format(i))
             # conditional distribution
-            # TODO add evaluate for multiple conditions
+            # TODO add evaluate_joint for multiple conditions
+            metric.classical.evaluate_cond(
+                real_cond_dep, fake_cond_dep=real_cond_dep)
 
 
 def sinkhorn_dist(generated, target):

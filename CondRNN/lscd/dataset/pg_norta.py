@@ -77,7 +77,7 @@ class PGnorta():
 
         We first sample from P(Z_q|X_q). 
         Denote the target distribution pi(z) as P(Z_q|X_q) = P(X_q|Z_q)*P(Z_q)/P(X_q).
-        Since P(X_q) is hard to evaluate, accept-Reject Algorithm is used.
+        Since P(X_q) is hard to evaluate_joint, accept-Reject Algorithm is used.
         Denote f(z) = P(X_q|Z_q)*P(Z_q) and a easy to sample distribution h(z).
         We must have f(z) <= c*h(z) for all z.
         We'll sample Z from pi(z) using the following steps:

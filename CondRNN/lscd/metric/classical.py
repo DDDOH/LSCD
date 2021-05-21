@@ -241,27 +241,46 @@ def run_through_queue_plot(real_cond_samples, fake_cond_samples, ax):
     ax.legend()
 
 
-def evaluate(real_cond_samples, fake_cond_samples, dir_filename):
+def evaluate_joint(real_samples, fake_samples, dir_filename):
     """Make a comparision for real samples and fake samples.
 
     Will create a figure contains the marginal mean, marginal variance, pierre correlation and w-distance.
 
     Args:
-        real_cond_samples (np.array or torch.tensor): 2D array of shape (n_samples, cond_len)
-        fake_cond_samples (np.array or torch.tensor): 2D array of shape (n_samples, cond_len)
+        real_samples (np.array or torch.tensor): 2D array of shape (n_samples, cond_len)
+        fake_samples (np.array or torch.tensor): 2D array of shape (n_samples, cond_len)
         dir_filename (string): The location to save the figure. Should include both the directory path and the file name, e.g., 'results/figure.jpg'.
     """
-    if isinstance(real_cond_samples, torch.Tensor):
-        real_cond_samples = real_cond_samples.detach().numpy()
-    if isinstance(fake_cond_samples, torch.Tensor):
-        fake_cond_samples = fake_cond_samples.detach().numpy()
-    assert np.shape(real_cond_samples)[1] == np.shape(fake_cond_samples)[1]
+    if isinstance(real_samples, torch.Tensor):
+        real_samples = real_samples.detach().numpy()
+    if isinstance(fake_samples, torch.Tensor):
+        fake_samples = fake_samples.detach().numpy()
+    assert np.shape(real_samples)[1] == np.shape(fake_samples)[1]
     fig, axs = plt.subplots(1, 4, figsize=(15, 3))
-    marginal_mean_plot(real_cond_samples, fake_cond_samples, axs[0])
-    marginal_var_plot(real_cond_samples, fake_cond_samples, axs[1])
-    pierre_corr_plot(real_cond_samples, fake_cond_samples, axs[2])
-    w_distance_plot(real_cond_samples, fake_cond_samples, axs[3])
-    # run_through_queue_plot(real_cond_samples, fake_cond_samples, axs[4])
+    marginal_mean_plot(real_samples, fake_samples, axs[0])
+    marginal_var_plot(real_samples, fake_samples, axs[1])
+    pierre_corr_plot(real_samples, fake_samples, axs[2])
+    w_distance_plot(real_samples, fake_samples, axs[3])
+    # run_through_queue_plot(real_cond_samples, fake_samples, axs[4])
+    fig.savefig(dir_filename)
+    plt.close(fig)
+
+
+def evaluate_cond(real_cond_dep, fake_cond_dep):
+    conditions = real_cond_dep.conditions
+    n_condition = real_cond_dep.n_condition
+    assert (real_cond_dep.conditions == fake_cond_dep.conditions).all()
+    for i in range(n_condition):
+        real_dependents = real_cond_dep.get_dep(condition=conditions[i, :])
+        fake_dependents = fake_cond_dep.get_dep(condition=conditions[i, :])
+
+    assert np.shape(real_samples)[1] == np.shape(fake_samples)[1]
+    fig, axs = plt.subplots(1, 4, figsize=(15, 3))
+    marginal_mean_plot(real_samples, fake_samples, axs[0])
+    marginal_var_plot(real_samples, fake_samples, axs[1])
+    pierre_corr_plot(real_samples, fake_samples, axs[2])
+    w_distance_plot(real_samples, fake_samples, axs[3])
+    # run_through_queue_plot(real_cond_samples, fake_samples, axs[4])
     fig.savefig(dir_filename)
     plt.close(fig)
 
@@ -277,5 +296,5 @@ if __name__ == '__main__':
     arrival_epoch = arrival_epoch_simulator(arrival_count)
     wait_time = run_through_queue(arrival_epoch)
 
-    evaluate(real_cond_samples, fake_cond_samples,
-             dir_filename='test_metric.jpg')
+    evaluate_joint(real_cond_samples, fake_cond_samples,
+                   dir_filename='test_metric.jpg')

@@ -1,6 +1,7 @@
 """Module for some useful data structures.
 """
 import numpy as np
+import torch
 
 
 class CondDep():
@@ -19,6 +20,8 @@ class CondDep():
         else:
             self.conditions = np.vstack([self.conditions, condition])
         self.n_condition += 1
+        if isinstance(dependent, torch.Tensor):
+            dependent = dependent.detach().numpy()
         self.dependent_for_each_condition.append(dependent)
 
     def get_dep(self, condition):

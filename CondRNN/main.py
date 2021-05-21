@@ -118,6 +118,7 @@ if MODEL_NAME == 'BaselineGMM':
     test_condition = conditions[0, :, 0]
     gmm_cond_samples = cgmm.cond_samples(
         new_condition=test_condition, n_sample=1000, verbose=True)
+    gmm_cond_samples = np.round(gmm_cond_samples).astype(int)
     real_cond_samples = data.sample_cond(
         X_1q=test_condition, n_sample=200, verbose=True)
     metric.classical.evaluate(
